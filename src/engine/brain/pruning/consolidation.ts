@@ -11,6 +11,8 @@ export interface ConsolidationResult {
   merged: number;
   pruned: number;
   linked: number;
+  removedIds: string[];
+  associationsById: Record<string, string[]>;
 }
 
 export async function runConsolidation(
@@ -42,13 +44,20 @@ export async function runConsolidation(
   try {
     const duplicates = findDuplicates(cmus, dedupeThreshold);
     const toRemove = new Set<string>();
+    const associationsById: Record<string, Set<string>> = Object.fromEntries(
+      cmus.map((cmu) => [cmu.id, new Set(cmu.associations)]),
+    );
 
     for (const dup of duplicates) {
       toRemove.add(dup.remove.id);
+      associationsById[dup.keep.id]?.add(dup.remove.id);
+      for (const association of dup.remove.associations) {
+        associationsById[dup.keep.id]?.add(association);
+      }
       merged++;
     }
 
-    linked = linkRelatedMemories(cmus, graph);
+    linked = linkRelatedMemories(cmus, graph, associationsById);
 
     const remaining = cmus.filter((cmu) => !toRemove.has(cmu.id));
 
@@ -77,9 +86,27 @@ export async function runConsolidation(
     }
 
     const agedPruned = pruneByAge(remaining, maxAgeDays);
-    pruned += remaining.length - agedPruned.length;
+    for (const cmu of remaining) {
+      if (!agedPruned.find((candidate) => candidate.id === cmu.id)) {
+        toRemove.add(cmu.id);
+      }
+    }
+    pruned = toRemove.size - merged;
 
-    return { merged, pruned, linked };
+    return {
+      merged,
+      pruned,
+      linked,
+      removedIds: Array.from(toRemove),
+      associationsById: Object.fromEntries(
+        Object.entries(associationsById)
+          .filter(([id]) => !toRemove.has(id))
+          .map(([id, associations]) => [
+            id,
+            Array.from(associations).filter((association) => association !== id && !toRemove.has(association)),
+          ]),
+      ),
+    };
   } catch (error) {
     throw new PruningError(
       `Consolidation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -88,7 +115,11 @@ export async function runConsolidation(
   }
 }
 
-function linkRelatedMemories(cmus: CMU[], graph: MemoryGraph): number {
+function linkRelatedMemories(
+  cmus: CMU[],
+  graph: MemoryGraph,
+  associationsById: Record<string, Set<string>>,
+): number {
   let links = 0;
 
   for (let i = 0; i < cmus.length; i++) {
@@ -97,6 +128,8 @@ function linkRelatedMemories(cmus: CMU[], graph: MemoryGraph): number {
         if (cmus[j].content.concepts.includes(concept)) {
           if (!cmus[i].associations.includes(cmus[j].id)) {
             graph.addAssociation(cmus[i].id, cmus[j].id, 0.5);
+            associationsById[cmus[i].id]?.add(cmus[j].id);
+            associationsById[cmus[j].id]?.add(cmus[i].id);
             links++;
           }
         }
@@ -109,6 +142,8 @@ function linkRelatedMemories(cmus: CMU[], graph: MemoryGraph): number {
               cmus[j].content.filesModified.includes(file)) {
             if (!cmus[i].associations.includes(cmus[j].id)) {
               graph.addAssociation(cmus[i].id, cmus[j].id, 0.7);
+              associationsById[cmus[i].id]?.add(cmus[j].id);
+              associationsById[cmus[j].id]?.add(cmus[i].id);
               links++;
             }
           }

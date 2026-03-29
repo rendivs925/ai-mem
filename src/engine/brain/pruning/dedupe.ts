@@ -45,6 +45,17 @@ function textToVector(text: string): number[] {
   return vector;
 }
 
+function vectorizeToVocabulary(text: string, vocabulary: string[]): number[] {
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  const counts = new Map<string, number>();
+
+  for (const word of words) {
+    counts.set(word, (counts.get(word) || 0) + 1);
+  }
+
+  return vocabulary.map((word) => counts.get(word) || 0);
+}
+
 export function calculateSimilarity(cmu1: CMU, cmu2: CMU): number {
   const combined1 = [
     cmu1.content.title,
@@ -60,8 +71,9 @@ export function calculateSimilarity(cmu1: CMU, cmu2: CMU): number {
     ...cmu2.content.concepts,
   ].join(" ");
 
-  const vec1 = textToVector(combined1);
-  const vec2 = textToVector(combined2);
+  const vocabulary = Array.from(new Set([...combined1.toLowerCase().split(/\s+/), ...combined2.toLowerCase().split(/\s+/)].filter(Boolean)));
+  const vec1 = vectorizeToVocabulary(combined1, vocabulary);
+  const vec2 = vectorizeToVocabulary(combined2, vocabulary);
 
   return cosineSimilarity(vec1, vec2);
 }

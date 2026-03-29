@@ -8,6 +8,7 @@ export interface StorageBackend {
   getMemoriesByProject(project: string): Promise<CMU[]>;
   getMemoriesByTier(tier: MemoryTier): Promise<CMU[]>;
   updateActivation(id: string, activation: number): Promise<void>;
+  updateAssociations(id: string, associations: string[]): Promise<void>;
   updateLastAccessed(id: string, timestamp: number): Promise<void>;
   incrementAccessCount(id: string): Promise<void>;
   deleteMemory(id: string): Promise<void>;

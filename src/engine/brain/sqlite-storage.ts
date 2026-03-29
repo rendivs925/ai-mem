@@ -84,6 +84,12 @@ export class SQLiteStorageBackend implements StorageBackend {
     `).run(activation, id);
   }
 
+  async updateAssociations(id: string, associations: string[]): Promise<void> {
+    this.db.query(`
+      UPDATE observations SET associations = ? WHERE id = ?
+    `).run(JSON.stringify(associations), id);
+  }
+
   async updateLastAccessed(id: string, timestamp: number): Promise<void> {
     this.db.query(`
       UPDATE observations SET last_accessed = ? WHERE id = ?

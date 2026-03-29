@@ -6,7 +6,7 @@ import type { CMUMetadata } from "../../types/brain/memory";
 
 const DEFAULT_DECAY_PARAMETER = 0.5;
 const MIN_ACCESS_COUNT = 1;
-const ELAPSED_TIME_CONSTANT = 1;
+const MIN_ELAPSED_MS = 1000;
 
 export function calculateBaseActivation(
   accessCount: number,
@@ -17,10 +17,10 @@ export function calculateBaseActivation(
     return 0;
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  const elapsed = Math.max(now - lastAccessed, ELAPSED_TIME_CONSTANT);
+  const now = Date.now();
+  const elapsedSeconds = Math.max(now - lastAccessed, MIN_ELAPSED_MS) / 1000;
 
-  const sum = accessCount * Math.pow(elapsed, -decayParameter);
+  const sum = accessCount * Math.pow(elapsedSeconds, -decayParameter);
 
   return Math.log(sum);
 }

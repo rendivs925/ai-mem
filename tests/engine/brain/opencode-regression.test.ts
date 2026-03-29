@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { ClaudeMemDatabase } from "../../../src/services/sqlite/Database.js";
 import { createBrainEngine } from "../../../src/engine/brain/engine.js";
+import { calculateBaseActivation } from "../../../src/engine/brain/activation.js";
 import { defaultBrainSettings, parseBrainSettings } from "../../../src/config/brain-settings.js";
 
 describe("OpenCode brain integration regressions", () => {
@@ -117,5 +118,75 @@ describe("OpenCode brain integration regressions", () => {
     expect(recalled?.id).toBe(stored.id);
     expect(recalled?.content.title).toBe("Gamma memory");
     expect(recalled?.content.facts).toEqual(["uses real sqlite row ids"]);
+  });
+
+  it("decays activation using millisecond timestamps instead of pinning everything to fresh", () => {
+    const recentlyAccessed = calculateBaseActivation(2, Date.now() - 1_000);
+    const staleMemory = calculateBaseActivation(2, Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    expect(staleMemory).toBeLessThan(recentlyAccessed);
+  });
+
+  it("persists consolidation by linking related memories and removing duplicates", async () => {
+    const db = new ClaudeMemDatabase(":memory:");
+    databases.push(db);
+
+    const engine = createBrainEngine(db.db);
+    await engine.initialize();
+
+    const first = await engine.captureMemory(
+      "session-4",
+      "project-a",
+      {
+        title: "Alpha implementation note",
+        narrative: "shared concept and same detail",
+        facts: [],
+        concepts: ["alpha", "parser"],
+        filesRead: ["src/parser.ts"],
+        filesModified: [],
+      },
+      "discovery",
+      0.7,
+    );
+    await engine.recordAccess(first.id);
+
+    const duplicate = await engine.captureMemory(
+      "session-5",
+      "project-a",
+      {
+        title: "Alpha implementation note",
+        narrative: "shared concept and same detail",
+        facts: [],
+        concepts: ["alpha", "parser"],
+        filesRead: ["src/parser.ts"],
+        filesModified: [],
+      },
+      "discovery",
+      0.7,
+    );
+
+    const related = await engine.captureMemory(
+      "session-6",
+      "project-a",
+      {
+        title: "Parser workflow",
+        narrative: "parser workflow for alpha requests",
+        facts: [],
+        concepts: ["alpha", "parser", "workflow"],
+        filesRead: ["src/parser.ts"],
+        filesModified: [],
+      },
+      "discovery",
+      0.7,
+    );
+
+    const result = await engine.consolidate();
+    const remaining = await engine.retrieveMemories("", {}, 10);
+    const refreshedFirst = await engine.getMemoryById(first.id);
+
+    expect(result.merged).toBeGreaterThanOrEqual(1);
+    expect(remaining.map((item) => item.cmu.id)).not.toContain(duplicate.id);
+    expect(remaining.length).toBe(2);
+    expect(refreshedFirst?.associations).toContain(related.id);
   });
 });

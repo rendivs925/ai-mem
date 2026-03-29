@@ -168,7 +168,23 @@ export class BrainEngine {
       ) as Record<string, number>,
     });
 
-    return result;
+    for (const [id, associations] of Object.entries(result.associationsById)) {
+      await this.storage.updateAssociations(id, associations);
+    }
+
+    for (const id of result.removedIds) {
+      await this.storage.deleteMemory(id);
+    }
+
+    if (this.graph) {
+      await this.initialize();
+    }
+
+    return {
+      merged: result.merged,
+      pruned: result.pruned,
+      linked: result.linked,
+    };
   }
 
   async getStats(): Promise<{
@@ -204,13 +220,37 @@ export class BrainEngine {
     filesRead: string[];
     filesModified: string[];
     narrative: string;
+    facts: string[];
+    concepts: string[];
+    title: string;
   }): MemoryTier {
+    const loweredTitle = content.title.toLowerCase();
+    const loweredNarrative = content.narrative.toLowerCase();
+
+    if (
+      loweredTitle.startsWith("tool:") ||
+      loweredTitle.startsWith("procedure:") ||
+      loweredNarrative.includes("step ") ||
+      loweredNarrative.includes("workflow") ||
+      loweredNarrative.includes("procedure")
+    ) {
+      return Tier.Procedural;
+    }
+
     if (content.filesModified.length > 0) {
       return Tier.Episodic;
     }
 
     if (content.filesRead.length > 5) {
       return Tier.Episodic;
+    }
+
+    if (content.facts.length > 0 || content.concepts.length >= 3) {
+      return Tier.Semantic;
+    }
+
+    if (content.narrative.length < 160) {
+      return Tier.Working;
     }
 
     return Tier.Episodic;

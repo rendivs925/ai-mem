@@ -7,6 +7,7 @@ import { BrainEngine, createBrainEngine } from "../engine/brain/engine";
 import { parseBrainSettings } from "../config/brain-settings";
 import { ClaudeMemDatabase } from "../services/sqlite/Database";
 import { DB_PATH } from "../shared/paths";
+import path from "path";
 
 type EngineState = {
   db: ClaudeMemDatabase;
@@ -71,6 +72,60 @@ async function getEngine(input: PluginInput): Promise<BrainEngine> {
 function tokenizeArgs(input: string): string[] {
   const raw = input.match(ARG_TOKEN_REGEX) ?? [];
   return raw.map((arg) => arg.replace(QUOTE_TRIM_REGEX, ""));
+}
+
+function projectName(input: PluginInput): string {
+  return input.project.name || path.basename(input.project.worktree);
+}
+
+function extractConcepts(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .toLowerCase()
+        .split(/[^a-z0-9_.-]+/)
+        .filter((token) => token.length >= 4),
+    ),
+  ).slice(0, 12);
+}
+
+function summarizeTitle(text: string, fallback: string): string {
+  const line = text.split("\n").map((item) => item.trim()).find(Boolean);
+  return (line || fallback).slice(0, 80);
+}
+
+async function captureUserPromptMemory(
+  engine: BrainEngine,
+  pluginInput: PluginInput,
+  output: { message: { sessionID: string }; parts: Array<{ type: string; text?: string; source?: { path?: string } }> },
+): Promise<void> {
+  const text = output.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text || "")
+    .join("\n")
+    .trim();
+
+  if (!text || text.length < 24) return;
+
+  const filesRead = output.parts
+    .filter((part) => part.type === "file")
+    .map((part) => part.source?.path)
+    .filter((value): value is string => Boolean(value));
+
+  await engine.captureMemory(
+    output.message.sessionID,
+    projectName(pluginInput),
+    {
+      title: summarizeTitle(text, "User prompt"),
+      narrative: text.slice(0, 2000),
+      facts: [],
+      concepts: extractConcepts(text),
+      filesRead,
+      filesModified: [],
+    },
+    "discovery",
+    filesRead.length > 0 ? 0.75 : 0.55,
+  );
 }
 
 async function executeMemoryCommand(engine: BrainEngine, command: string, argumentsText: string): Promise<string | undefined> {
@@ -164,8 +219,8 @@ function formatStatsOutput(stats: Awaited<ReturnType<BrainEngine["getStats"]>>):
   ].join("\n");
 }
 
-export const AiMemPlugin: Plugin = async (input: PluginInput) => {
-  const engine = await getEngine(input);
+export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
+  const engine = await getEngine(pluginInput);
 
   return {
     config: async (config) => {
@@ -271,6 +326,8 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
     },
 
     "chat.message": async (_input, output) => {
+      await captureUserPromptMemory(engine, pluginInput, output as never);
+
       const query = output.parts
         .filter((part) => part.type === "text")
         .map((part) => part.text)
@@ -306,22 +363,30 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
       input: { tool: string; args: Record<string, unknown> },
       output
     ) => {
-      const project = "default";
+      const project = projectName(pluginInput);
+      const argumentText = JSON.stringify(input.args);
+      const files = Array.from(
+        new Set(
+          Object.values(input.args)
+            .filter((value): value is string => typeof value === "string")
+            .filter((value) => value.includes("/") || value.includes(".")),
+        ),
+      ).slice(0, 10);
 
       if (output.output && output.output.length > 100) {
         await engine.captureMemory(
-          crypto.randomUUID(),
+          input.sessionID,
           project,
           {
             title: `Tool: ${input.tool}`,
             narrative: output.output.substring(0, 2000),
-            facts: [],
-            concepts: [input.tool],
-            filesRead: [],
-            filesModified: [],
+            facts: argumentText.length > 2 ? [argumentText.slice(0, 300)] : [],
+            concepts: [input.tool, ...extractConcepts(output.output)].slice(0, 12),
+            filesRead: files,
+            filesModified: input.tool.includes("edit") || input.tool.includes("write") ? files : [],
           },
-          "discovery",
-          0.5
+          input.tool.includes("edit") || input.tool.includes("write") ? "change" : "discovery",
+          files.length > 0 ? 0.8 : 0.65,
         );
       }
     },
