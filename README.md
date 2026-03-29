@@ -16,7 +16,14 @@ Forked from [claude-mem](https://github.com/thedotmack/claude-mem) with architec
 
 ### OpenCode
 
-Add to `~/.opencode.json`:
+Run from this repository:
+
+```bash
+make setup-opencode
+make doctor-opencode
+```
+
+Or add to `~/.config/opencode/opencode.json` manually:
 
 ```json
 {
