@@ -9,7 +9,8 @@ Forked from [claude-mem](https://github.com/thedotmack/claude-mem) with architec
 - **ACT-R Activation** - Memory salience based on recency, frequency, and context relevance
 - **Spreading Activation** - Associative memory retrieval through knowledge graph traversal  
 - **Memory Consolidation** - Automatic deduplication and semantic pruning
-- **Multi-Tier Storage** - Fast SQLite for recent memories, vector search (Qdrant) for semantic retrieval
+- **Shared SQLite Brain Memory** - OpenCode, Claude Code, and Codex can use the same persistent memory store
+- **Near-Real-Time Visibility** - Long-lived runtimes refresh from SQLite so memories written by one tool become visible to the others
 - **Universal Plugin** - Works with OpenCode, Claude Code, and Codex
 
 ## Installation
@@ -35,11 +36,44 @@ Or add to `~/.config/opencode/opencode.json` manually:
 
 `make setup-opencode` writes the correct absolute `file://` plugin entry automatically.
 
+If you are installing OpenCode from the parent `opencode-rs` repository, use:
+
+```bash
+make opencode-install
+```
+
+That flow clones/prepares `ai-mem`, writes the plugin entry into `~/.config/opencode/opencode.json`, and installs the OpenCode binary.
+
 ### Claude Code
 
 ```bash
 /plugin marketplace add thedotmack/claude-mem
 /plugin install claude-mem
+```
+
+### Codex
+
+Codex can feed the same memory store through transcript watching and the shared worker/session routes in this repository.
+
+## Viewer
+
+To inspect memory in the browser, start the worker service from this repository:
+
+```bash
+bun plugin/scripts/worker-service.cjs start
+```
+
+Then open:
+
+```text
+http://localhost:37777/
+```
+
+Useful commands:
+
+```bash
+bun plugin/scripts/worker-service.cjs status
+bun plugin/scripts/worker-service.cjs restart
 ```
 
 ## Architecture
@@ -54,11 +88,17 @@ src/
 │   ├── engine.ts         # BrainEngine orchestrator
 │   ├── storage.ts        # Storage interface
 │   ├── sqlite-storage.ts # SQLite implementation
-│   ├── vector-search.ts  # Qdrant integration
 │   └── pruning/         # dedupe, cull, consolidation
 └── plugin/
     └── opencode.ts       # OpenCode hook integration
 ```
+
+The active runtime model is:
+
+- shared SQLite-backed brain memory
+- OpenCode plugin integration
+- Claude/Codex worker and transcript ingestion
+- browser viewer backed by the worker service
 
 ## Configuration
 
