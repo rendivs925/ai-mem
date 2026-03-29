@@ -510,6 +510,11 @@ export const migration007: Migration = {
 
 
 /**
+ * Brain-inspired memory migrations
+ */
+export { migration018 } from './migrations/brain.js';
+
+/**
  * All migrations in order
  */
 export const migrations: Migration[] = [
@@ -519,5 +524,6 @@ export const migrations: Migration[] = [
   migration004,
   migration005,
   migration006,
-  migration007
+  migration007,
+  migration018
 ];
