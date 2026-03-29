@@ -4,14 +4,30 @@
 import type { Database } from "bun:sqlite";
 import type { CMU, CMUMetadata, MemoryTier, EmotionalTag } from "../../types/brain/memory";
 import type { StorageBackend } from "./storage";
-import { MemoryTier as Tier, EmotionalTag as Tag } from "../../types/brain/memory";
+import { MemoryTier as Tier } from "../../types/brain/memory";
+import { computeObservationContentHash } from "../../services/sqlite/observations/store";
 
 export class SQLiteStorageBackend implements StorageBackend {
   constructor(private db: Database) {}
 
+  private ensureSession(sessionId: string, project: string, timestamp: number): void {
+    const startedAt = new Date(timestamp).toISOString();
+    this.db.query(`
+      INSERT OR IGNORE INTO sdk_sessions (
+        content_session_id,
+        memory_session_id,
+        project,
+        started_at,
+        started_at_epoch,
+        status
+      ) VALUES (?, ?, ?, ?, ?, 'active')
+    `).run(sessionId, sessionId, project, startedAt, timestamp);
+  }
+
   async getAllMemories(): Promise<CMU[]> {
     const rows = this.db.query(`
-      SELECT id, memory_session_id, project, tier, type, text, title, concept,
+      SELECT id, memory_session_id, project, tier, type, text, title, narrative, concepts,
+             facts, files_read, files_modified,
              importance, base_activation, decay_rate, tags, associations,
              last_accessed, access_count, created_at_epoch
       FROM observations
@@ -23,7 +39,8 @@ export class SQLiteStorageBackend implements StorageBackend {
 
   async getMemoryById(id: string): Promise<CMU | null> {
     const row = this.db.query(`
-      SELECT id, memory_session_id, project, tier, type, text, title, concept,
+      SELECT id, memory_session_id, project, tier, type, text, title, narrative, concepts,
+             facts, files_read, files_modified,
              importance, base_activation, decay_rate, tags, associations,
              last_accessed, access_count, created_at_epoch
       FROM observations
@@ -35,7 +52,8 @@ export class SQLiteStorageBackend implements StorageBackend {
 
   async getMemoriesByProject(project: string): Promise<CMU[]> {
     const rows = this.db.query(`
-      SELECT id, memory_session_id, project, tier, type, text, title, concept,
+      SELECT id, memory_session_id, project, tier, type, text, title, narrative, concepts,
+             facts, files_read, files_modified,
              importance, base_activation, decay_rate, tags, associations,
              last_accessed, access_count, created_at_epoch
       FROM observations
@@ -48,7 +66,8 @@ export class SQLiteStorageBackend implements StorageBackend {
 
   async getMemoriesByTier(tier: MemoryTier): Promise<CMU[]> {
     const rows = this.db.query(`
-      SELECT id, memory_session_id, project, tier, type, text, title, concept,
+      SELECT id, memory_session_id, project, tier, type, text, title, narrative, concepts,
+             facts, files_read, files_modified,
              importance, base_activation, decay_rate, tags, associations,
              last_accessed, access_count, created_at_epoch
       FROM observations
@@ -81,22 +100,35 @@ export class SQLiteStorageBackend implements StorageBackend {
     this.db.query(`DELETE FROM observations WHERE id = ?`).run(id);
   }
 
-  async storeMemory(cmu: CMU): Promise<void> {
-    this.db.query(`
+  async storeMemory(cmu: CMU): Promise<string> {
+    const createdAt = new Date(cmu.metadata.createdAt).toISOString();
+    const contentHash = computeObservationContentHash(
+      cmu.sessionId,
+      cmu.content.title,
+      cmu.content.narrative,
+    );
+    this.ensureSession(cmu.sessionId, cmu.project, cmu.metadata.createdAt);
+    const result = this.db.query(`
       INSERT INTO observations (
-        id, memory_session_id, project, tier, type, text, title, concept,
+        memory_session_id, project, text, type, title, facts, narrative, concepts,
+        files_read, files_modified, created_at, created_at_epoch, tier,
         importance, base_activation, decay_rate, tags, associations,
-        last_accessed, access_count, created_at_epoch
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_accessed, access_count, content_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      cmu.id,
       cmu.sessionId,
       cmu.project,
-      cmu.tier,
-      cmu.memoryType,
       cmu.content.narrative,
+      cmu.memoryType,
       cmu.content.title,
-      cmu.content.concepts.join(", "),
+      JSON.stringify(cmu.content.facts),
+      cmu.content.narrative,
+      JSON.stringify(cmu.content.concepts),
+      JSON.stringify(cmu.content.filesRead),
+      JSON.stringify(cmu.content.filesModified),
+      createdAt,
+      cmu.metadata.createdAt,
+      cmu.tier,
       cmu.metadata.importance,
       cmu.metadata.baseActivation,
       cmu.metadata.decayRate,
@@ -104,21 +136,48 @@ export class SQLiteStorageBackend implements StorageBackend {
       JSON.stringify(cmu.associations),
       cmu.metadata.lastAccessed,
       cmu.metadata.accessCount,
-      cmu.metadata.createdAt
+      contentHash,
     );
+    return String(result.lastInsertRowid);
   }
 
   async searchByKeywords(keywords: string[], limit: number = 50): Promise<CMU[]> {
-    const pattern = keywords.map((k) => `%${k}%`).join(" ");
-    const rows = this.db.query(`
-      SELECT id, memory_session_id, project, tier, type, text, title, concept,
+    let rows: BrainObservationRow[];
+
+    if (keywords.length === 0) {
+      rows = this.db.query(`
+        SELECT id, memory_session_id, project, tier, type, text, title, narrative, concepts,
+               facts, files_read, files_modified,
+               importance, base_activation, decay_rate, tags, associations,
+               last_accessed, access_count, created_at_epoch
+        FROM observations
+        WHERE tier IS NOT NULL
+        ORDER BY base_activation DESC
+        LIMIT ?
+      `).all(limit) as BrainObservationRow[];
+      return rows.map(this.rowToCMU);
+    }
+
+    const clauses = keywords
+      .map(
+        () => "(COALESCE(text, '') LIKE ? OR COALESCE(title, '') LIKE ? OR COALESCE(narrative, '') LIKE ? OR COALESCE(concepts, '') LIKE ?)",
+      )
+      .join(" OR ");
+    const params = keywords.flatMap((keyword) => {
+      const pattern = `%${keyword}%`;
+      return [pattern, pattern, pattern, pattern];
+    });
+
+    rows = this.db.query(`
+      SELECT id, memory_session_id, project, tier, type, text, title, narrative, concepts,
+             facts, files_read, files_modified,
              importance, base_activation, decay_rate, tags, associations,
              last_accessed, access_count, created_at_epoch
       FROM observations
-      WHERE tier IS NOT NULL AND (text LIKE ? OR title LIKE ? OR concept LIKE ?)
+      WHERE tier IS NOT NULL AND (${clauses})
       ORDER BY base_activation DESC
       LIMIT ?
-    `).all(pattern, pattern, pattern, limit) as BrainObservationRow[];
+    `).all(...params, limit) as BrainObservationRow[];
 
     return rows.map(this.rowToCMU);
   }
@@ -126,6 +185,10 @@ export class SQLiteStorageBackend implements StorageBackend {
   private rowToCMU(row: BrainObservationRow): CMU {
     const tags = JSON.parse(row.tags || "[]") as string[];
     const associations = JSON.parse(row.associations || "[]") as string[];
+    const facts = JSON.parse(row.facts || "[]") as string[];
+    const concepts = JSON.parse(row.concepts || "[]") as string[];
+    const filesRead = JSON.parse(row.files_read || "[]") as string[];
+    const filesModified = JSON.parse(row.files_modified || "[]") as string[];
 
     return {
       id: String(row.id),
@@ -135,11 +198,11 @@ export class SQLiteStorageBackend implements StorageBackend {
       memoryType: row.type as never,
       content: {
         title: row.title || "",
-        narrative: row.text || "",
-        facts: [],
-        concepts: row.concept ? row.concept.split(", ").filter(Boolean) : [],
-        filesRead: [],
-        filesModified: [],
+        narrative: row.narrative || row.text || "",
+        facts,
+        concepts,
+        filesRead,
+        filesModified,
       },
       metadata: {
         createdAt: row.created_at_epoch,
@@ -156,14 +219,18 @@ export class SQLiteStorageBackend implements StorageBackend {
 }
 
 interface BrainObservationRow {
-  id: number;
+  id: number | string;
   memory_session_id: string;
   project: string;
   tier: string;
   type: string;
-  text: string;
-  title: string;
-  concept: string;
+  text: string | null;
+  title: string | null;
+  facts: string | null;
+  narrative: string | null;
+  concepts: string | null;
+  files_read: string | null;
+  files_modified: string | null;
   importance: number;
   base_activation: number;
   decay_rate: number;

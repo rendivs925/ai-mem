@@ -11,6 +11,6 @@ export interface StorageBackend {
   updateLastAccessed(id: string, timestamp: number): Promise<void>;
   incrementAccessCount(id: string): Promise<void>;
   deleteMemory(id: string): Promise<void>;
-  storeMemory(cmu: CMU): Promise<void>;
+  storeMemory(cmu: CMU): Promise<string>;
   searchByKeywords(keywords: string[], limit?: number): Promise<CMU[]>;
 }

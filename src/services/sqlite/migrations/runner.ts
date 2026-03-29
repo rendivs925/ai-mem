@@ -32,6 +32,7 @@ export class MigrationRunner {
     this.repairSessionIdColumnRename();
     this.addFailedAtEpochColumn();
     this.addOnUpdateCascadeToForeignKeys();
+    this.ensureBrainMemoryColumns();
     this.addObservationContentHashColumn();
     this.addSessionCustomTitleColumn();
   }
@@ -631,6 +632,34 @@ export class MigrationRunner {
     }
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(20, new Date().toISOString());
+  }
+
+  /**
+   * Ensure brain-memory columns exist on observations (migration 18)
+   */
+  private ensureBrainMemoryColumns(): void {
+    const tableInfo = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+    const columns = new Set(tableInfo.map((column) => column.name));
+
+    const columnDefinitions = [
+      ['tier', "TEXT DEFAULT 'episodic'"],
+      ['importance', 'REAL DEFAULT 0.5'],
+      ['base_activation', 'REAL DEFAULT 0'],
+      ['decay_rate', 'REAL DEFAULT 0.5'],
+      ['tags', `TEXT DEFAULT '[]'`],
+      ['associations', `TEXT DEFAULT '[]'`],
+      ['last_accessed', 'INTEGER'],
+      ['access_count', 'INTEGER DEFAULT 0'],
+    ] as const;
+
+    for (const [name, definition] of columnDefinitions) {
+      if (columns.has(name)) continue;
+      this.db.run(`ALTER TABLE observations ADD COLUMN ${name} ${definition}`);
+    }
+
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_observations_activation ON observations(base_activation DESC)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_observations_tier ON observations(tier)');
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(18, new Date().toISOString());
   }
 
   /**

@@ -5,8 +5,15 @@ import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { BrainEngine, createBrainEngine } from "../engine/brain/engine";
 import { parseBrainSettings } from "../config/brain-settings";
+import { ClaudeMemDatabase } from "../services/sqlite/Database";
+import { DB_PATH } from "../shared/paths";
 
-let brainEngine: BrainEngine | null = null;
+type EngineState = {
+  db: ClaudeMemDatabase;
+  engine: BrainEngine;
+};
+
+const engineStateByDbPath = new Map<string, EngineState>();
 
 const MEM_SEARCH = "mem-search";
 const MEM_RECALL = "mem-recall";
@@ -46,16 +53,19 @@ const ARG_TOKEN_REGEX = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi;
 const QUOTE_TRIM_REGEX = /^["']|["']$/g;
 
 async function getEngine(input: PluginInput): Promise<BrainEngine> {
-  if (!brainEngine) {
-    const config = input.project?.settings?.["ai-mem"];
-    const settings = parseBrainSettings(config);
-    brainEngine = createBrainEngine(
-      {} as never,
-      settings
-    );
-    await brainEngine.initialize();
+  const config = input.project?.settings?.["ai-mem"];
+  const settings = parseBrainSettings(config);
+  const stateKey = `${DB_PATH}:${JSON.stringify(settings)}`;
+  const existing = engineStateByDbPath.get(stateKey);
+  if (existing) {
+    return existing.engine;
   }
-  return brainEngine;
+
+  const db = new ClaudeMemDatabase(DB_PATH);
+  const engine = createBrainEngine(db.db, settings);
+  await engine.initialize();
+  engineStateByDbPath.set(stateKey, { db, engine });
+  return engine;
 }
 
 function tokenizeArgs(input: string): string[] {
@@ -104,18 +114,17 @@ async function executeMemoryCommand(engine: BrainEngine, command: string, argume
       return `Usage: /${MEM_RECALL} <memory-id>`;
     }
 
-    await engine.recordAccess(memoryId);
-    const [memory] = await engine.retrieveMemories(memoryId, {}, 1);
-    if (!memory || memory.cmu.id !== memoryId) {
-      return "Memory access recorded";
+    const memory = await engine.getMemoryById(memoryId);
+    if (!memory) {
+      return "Memory not found";
     }
 
+    await engine.recordAccess(memoryId);
     return [
-      `Memory accessed: ${memory.cmu.id}`,
-      `Title: ${memory.cmu.content.title}`,
-      `Tier: ${memory.cmu.tier}`,
-      `Activation: ${memory.activation.toFixed(2)}`,
-      `Narrative: ${memory.cmu.content.narrative}`,
+      `[${memory.tier}] ${memory.content.title}`,
+      `ID: ${memory.id}`,
+      `Importance: ${memory.metadata.importance.toFixed(2)}`,
+      memory.content.narrative,
     ].join("\n");
   }
 
@@ -197,8 +206,22 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
           memoryId: tool.schema.string().describe("Memory ID to recall"),
         },
         async execute(args) {
+          const memory = await engine.getMemoryById(args.memoryId);
+          if (!memory) {
+            return { success: false, message: "Memory not found" };
+          }
+
           await engine.recordAccess(args.memoryId);
-          return { success: true, message: "Memory access recorded" };
+          return {
+            success: true,
+            memory: {
+              id: memory.id,
+              title: memory.content.title,
+              narrative: memory.content.narrative,
+              tier: memory.tier,
+              importance: memory.metadata.importance,
+            },
+          };
         },
       }),
 
@@ -237,9 +260,17 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
       ];
     },
 
-    "chat.message": async (input: { message: string }, output: { message: string }) => {
+    "chat.message": async (_input, output) => {
+      const query = output.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim();
+
+      if (!query) return;
+
       const results = await engine.retrieveMemories(
-        output.message,
+        query,
         {},
         10
       );
@@ -250,18 +281,20 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
           .map((r) => `[${r.cmu.tier}] ${r.cmu.content.title}: ${r.cmu.content.narrative.substring(0, 200)}`)
           .join("\n\n");
 
-        return {
-          injected: true,
-          context: `\n\nRelevant memories:\n${context}\n`,
-        };
+        output.parts.push({
+          id: crypto.randomUUID(),
+          sessionID: output.message.sessionID,
+          messageID: output.message.id,
+          type: "text",
+          text: `Relevant memories:\n${context}`,
+          synthetic: true,
+        } as never);
       }
-
-      return { injected: false };
     },
 
     "tool.execute.after": async (
       input: { tool: string; args: Record<string, unknown> },
-      output: { output: string }
+      output
     ) => {
       const project = "default";
 
@@ -283,14 +316,19 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
       }
     },
 
-    "experimental.session.compacting": async (input: unknown, output: { context: string }) => {
+    "experimental.session.compacting": async (_input, output) => {
       const results = await engine.retrieveMemories("", {}, 100);
       const memories = results.map((r) => r.cmu).slice(0, 50);
+      if (memories.length === 0) return;
 
-      return {
-        memories,
-        count: memories.length,
-      };
+      const lines = memories.map((memory) =>
+        [
+          `[${memory.tier}] ${memory.content.title}`,
+          memory.content.narrative,
+        ].join("\n"),
+      );
+
+      output.context.push(`Relevant ai-mem memories:\n\n${lines.join("\n\n---\n\n")}`);
     },
   };
 };

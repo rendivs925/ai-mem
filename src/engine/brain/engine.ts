@@ -43,12 +43,11 @@ export class BrainEngine {
     memoryType: string,
     importance: number = 0.5
   ): Promise<CMU> {
-    const id = crypto.randomUUID();
     const now = Date.now();
     const tier = this.determineTier(content);
 
     const cmu: CMU = {
-      id,
+      id: "",
       sessionId,
       project,
       tier,
@@ -66,13 +65,14 @@ export class BrainEngine {
       associations: [],
     };
 
-    await this.storage.storeMemory(cmu);
+    const id = await this.storage.storeMemory(cmu);
+    const stored = { ...cmu, id };
 
     if (this.graph) {
-      this.graph.addNode(cmu);
+      this.graph.addNode(stored);
     }
 
-    return cmu;
+    return stored;
   }
 
   async retrieveMemories(
@@ -150,6 +150,10 @@ export class BrainEngine {
       );
       await this.storage.updateActivation(memoryId, newActivation);
     }
+  }
+
+  async getMemoryById(memoryId: string): Promise<CMU | null> {
+    return this.storage.getMemoryById(memoryId);
   }
 
   async consolidate(): Promise<{ merged: number; pruned: number; linked: number }> {
