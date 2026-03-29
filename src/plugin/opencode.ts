@@ -172,6 +172,17 @@ async function captureUserPromptMemory(
   );
 }
 
+function formatRelevantMemoryContext(results: Awaited<ReturnType<BrainEngine["retrieveMemories"]>>): string {
+  return [
+    "Established project memory:",
+    "Use this as prior context and avoid asking for the same background again unless the user is correcting it.",
+    "",
+    ...results.slice(0, 5).map((result) =>
+      `- [${result.cmu.tier}] ${result.cmu.content.title}: ${result.cmu.content.narrative.slice(0, 220)}`,
+    ),
+  ].join("\n");
+}
+
 async function executeMemoryCommand(
   engine: BrainEngine,
   command: string,
@@ -376,33 +387,28 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
     },
 
     "chat.message": async (_input, output) => {
-      await captureUserPromptMemory(engine, pluginInput, output as never);
-
       const query = output.parts
         .filter((part) => part.type === "text")
         .map((part) => part.text)
         .join("\n")
         .trim();
 
-      if (!query) return;
-
-      const results = await engine.retrieveMemories(query, { projects }, 10);
-
-      if (results.length > 0) {
-        const context = results
-          .slice(0, 5)
-          .map((r) => `[${r.cmu.tier}] ${r.cmu.content.title}: ${r.cmu.content.narrative.substring(0, 200)}`)
-          .join("\n\n");
-
-        output.parts.push({
-          id: `prt_${crypto.randomUUID().replaceAll("-", "")}`,
-          sessionID: output.message.sessionID,
-          messageID: output.message.id,
-          type: "text",
-          text: `Relevant memories:\n${context}`,
-          synthetic: true,
-        } as never);
+      if (query) {
+        const results = await engine.retrieveMemories(query, { projects }, 10);
+        if (results.length > 0) {
+          const context = formatRelevantMemoryContext(results);
+          output.parts.push({
+            id: `prt_${crypto.randomUUID().replaceAll("-", "")}`,
+            sessionID: output.message.sessionID,
+            messageID: output.message.id,
+            type: "text",
+            text: context,
+            synthetic: true,
+          } as never);
+        }
       }
+
+      await captureUserPromptMemory(engine, pluginInput, output as never);
     },
 
     "tool.execute.after": async (
@@ -419,7 +425,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
         ),
       ).slice(0, 10);
 
-      if (output.output && output.output.length > 100) {
+      if (output.output && output.output.trim().length > 24) {
         await engine.captureMemory(
           input.sessionID,
           project,
@@ -457,18 +463,19 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
         "",
         {
           projects,
-          tiers: ["semantic", "procedural"] as never,
+          tiers: ["semantic", "procedural", "episodic"] as never,
         },
-        8,
+        12,
       );
 
       if (results.length === 0) return;
 
       output.system.push(
         [
-          "Long-term memory context:",
+          "Long-term project memory:",
+          "Treat these as established context for this repository. Reuse them instead of asking the user to restate known background unless something is ambiguous or contradicted.",
           ...results.map((result) =>
-            `- [${result.cmu.tier}] ${result.cmu.content.title}: ${result.cmu.content.narrative.slice(0, 200)}`,
+            `- [${result.cmu.tier}] ${result.cmu.content.title}: ${result.cmu.content.narrative.slice(0, 220)}`,
           ),
         ].join("\n"),
       );
