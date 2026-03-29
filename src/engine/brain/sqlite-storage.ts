@@ -10,6 +10,30 @@ import { computeObservationContentHash } from "../../services/sqlite/observation
 export class SQLiteStorageBackend implements StorageBackend {
   constructor(private db: Database) {}
 
+  async getSyncToken(): Promise<string> {
+    const row = this.db.query(`
+      SELECT
+        COUNT(*) AS total,
+        COALESCE(MAX(id), 0) AS max_id,
+        COALESCE(MAX(created_at_epoch), 0) AS max_created_at,
+        COALESCE(MAX(last_accessed), 0) AS max_last_accessed
+      FROM observations
+      WHERE tier IS NOT NULL
+    `).get() as {
+      total: number;
+      max_id: number;
+      max_created_at: number;
+      max_last_accessed: number;
+    };
+
+    return [
+      row.total,
+      row.max_id,
+      row.max_created_at,
+      row.max_last_accessed,
+    ].join(":");
+  }
+
   private ensureSession(sessionId: string, project: string, timestamp: number): void {
     const startedAt = new Date(timestamp).toISOString();
     this.db.query(`

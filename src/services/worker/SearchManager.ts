@@ -13,17 +13,20 @@
  * - TimelineBuilder: Timeline construction
  */
 
-import { basename } from 'path';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { SessionStore } from '../sqlite/SessionStore.js';
 import { ChromaSync } from '../sync/ChromaSync.js';
+import { createBrainEngine, type BrainEngine } from '../../engine/brain/engine.js';
+import { MemoryTier } from '../../types/brain/memory.js';
 import { FormattingService } from './FormattingService.js';
 import { TimelineService } from './TimelineService.js';
 import type { TimelineItem } from './TimelineService.js';
 import type { ObservationSearchResult, SessionSummarySearchResult, UserPromptSearchResult } from '../sqlite/types.js';
 import { logger } from '../../utils/logger.js';
+import { getProjectAliases, getProjectContext } from '../../utils/project-name.js';
 import { formatDate, formatTime, formatDateTime, extractFirstFile, groupByDate, estimateTokens } from '../../shared/timeline-formatting.js';
 import { ModeManager } from '../domain/ModeManager.js';
+import type { CMU, RetrievalResult } from '../../types/brain/memory.js';
 
 import {
   SearchOrchestrator,
@@ -35,6 +38,8 @@ import type { TimelineData } from './search/index.js';
 export class SearchManager {
   private orchestrator: SearchOrchestrator;
   private timelineBuilder: TimelineBuilder;
+  private brainEngine: BrainEngine | null = null;
+  private brainEngineReady: Promise<BrainEngine> | null = null;
 
   constructor(
     private sessionSearch: SessionSearch,
@@ -50,6 +55,96 @@ export class SearchManager {
       chromaSync
     );
     this.timelineBuilder = new TimelineBuilder();
+  }
+
+  private async getBrainEngine(): Promise<BrainEngine> {
+    if (this.brainEngine) return this.brainEngine;
+    if (!this.brainEngineReady) {
+      this.brainEngineReady = (async () => {
+        const engine = createBrainEngine(this.sessionStore.db);
+        await engine.initialize();
+        this.brainEngine = engine;
+        return engine;
+      })();
+    }
+    return this.brainEngineReady;
+  }
+
+  private async brainSearch(
+    query: string,
+    options: { project?: string; limit?: number; tiers?: MemoryTier[] } = {},
+  ) {
+    const engine = await this.getBrainEngine();
+    return engine.retrieveMemories(
+      query,
+      {
+        projects: options.project ? getProjectAliases(options.project) : undefined,
+        tiers: options.tiers,
+      },
+      options.limit || 20,
+    );
+  }
+
+  private formatBrainResults(results: Awaited<ReturnType<SearchManager['brainSearch']>>, query: string): string {
+    if (results.length === 0) {
+      return `No brain-memory results found matching "${query}"`;
+    }
+
+    return [
+      `Brain memory results for "${query}"`,
+      '',
+      ...results.map((result) =>
+        [
+          `[${result.cmu.tier}] ${result.cmu.content.title}`,
+          `ID: ${result.cmu.id}`,
+          `Activation: ${result.activation.toFixed(2)}`,
+          result.cmu.content.narrative,
+        ].join('\n'),
+      ),
+    ].join('\n\n---\n\n');
+  }
+
+  private formatBrainMemoryList(
+    heading: string,
+    results: RetrievalResult[],
+    emptyMessage: string,
+  ): { content: Array<{ type: 'text'; text: string }> } {
+    if (results.length === 0) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: emptyMessage,
+        }],
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: [
+          heading,
+          '',
+          ...results.map((result) =>
+            [
+              `[${result.cmu.tier}] ${result.cmu.content.title}`,
+              `ID: ${result.cmu.id}`,
+              `Type: ${result.cmu.memoryType}`,
+              `Project: ${result.cmu.project}`,
+              `Activation: ${result.activation.toFixed(2)}`,
+              result.cmu.content.narrative,
+            ].join('\n'),
+          ),
+        ].join('\n\n---\n\n'),
+      }],
+    };
+  }
+
+  private filterBrainResults(
+    results: RetrievalResult[],
+    predicate: (cmu: CMU) => boolean,
+    limit: number,
+  ): RetrievalResult[] {
+    return results.filter((result) => predicate(result.cmu)).slice(0, limit);
   }
 
   /**
@@ -673,156 +768,32 @@ export class SearchManager {
    * Tool handler: decisions
    */
   async decisions(args: any): Promise<any> {
-    const normalized = this.normalizeParams(args);
-    const { query, ...filters } = normalized;
-    let results: ObservationSearchResult[] = [];
-
-    // Search for decision-type observations
-    if (this.chromaSync) {
-      try {
-        if (query) {
-          // Semantic search filtered to decision type
-          logger.debug('SEARCH', 'Using Chroma semantic search with type=decision filter', {});
-          const chromaResults = await this.queryChroma(query, Math.min((filters.limit || 20) * 2, 100), { type: 'decision' });
-          const obsIds = chromaResults.ids;
-
-          if (obsIds.length > 0) {
-            results = this.sessionStore.getObservationsByIds(obsIds, { ...filters, type: 'decision' });
-            // Preserve Chroma ranking order
-            results.sort((a, b) => obsIds.indexOf(a.id) - obsIds.indexOf(b.id));
-          }
-        } else {
-          // No query: get all decisions, rank by "decision" keyword
-          logger.debug('SEARCH', 'Using metadata-first + semantic ranking for decisions', {});
-          const metadataResults = this.sessionSearch.findByType('decision', filters);
-
-          if (metadataResults.length > 0) {
-            const ids = metadataResults.map(obs => obs.id);
-            const chromaResults = await this.queryChroma('decision', Math.min(ids.length, 100));
-
-            const rankedIds: number[] = [];
-            for (const chromaId of chromaResults.ids) {
-              if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-                rankedIds.push(chromaId);
-              }
-            }
-
-            if (rankedIds.length > 0) {
-              results = this.sessionStore.getObservationsByIds(rankedIds, { limit: filters.limit || 20 });
-              results.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id));
-            }
-          }
-        }
-      } catch (chromaError) {
-        logger.error('SEARCH', 'Chroma search failed for decisions, falling back to metadata search', {}, chromaError as Error);
-      }
-    }
-
-    if (results.length === 0) {
-      results = this.sessionSearch.findByType('decision', filters);
-    }
-
-    if (results.length === 0) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: 'No decision observations found'
-        }]
-      };
-    }
-
-    // Format as table
-    const header = `Found ${results.length} decision(s)\n\n${this.formatter.formatTableHeader()}`;
-    const formattedResults = results.map((obs, i) => this.formatter.formatObservationIndex(obs, i));
-
-    return {
-      content: [{
-        type: 'text' as const,
-        text: header + '\n' + formattedResults.join('\n')
-      }]
-    };
+    const brainResults = await this.brainSearch(args.query || 'decision architecture design rationale', {
+      project: args.project,
+      limit: args.limit || 20,
+      tiers: [MemoryTier.Semantic, MemoryTier.Episodic],
+    });
+    return this.formatBrainMemoryList(
+      'Decision memories',
+      brainResults,
+      'No decision memories found',
+    );
   }
 
   /**
    * Tool handler: changes
    */
   async changes(args: any): Promise<any> {
-    const normalized = this.normalizeParams(args);
-    const { ...filters } = normalized;
-    let results: ObservationSearchResult[] = [];
-
-    // Search for change-type observations and change-related concepts
-    if (this.chromaSync) {
-      try {
-        logger.debug('SEARCH', 'Using hybrid search for change-related observations', {});
-
-        // Get all observations with type="change" or concepts containing change
-        const typeResults = this.sessionSearch.findByType('change', filters);
-        const conceptChangeResults = this.sessionSearch.findByConcept('change', filters);
-        const conceptWhatChangedResults = this.sessionSearch.findByConcept('what-changed', filters);
-
-        // Combine and deduplicate
-        const allIds = new Set<number>();
-        [...typeResults, ...conceptChangeResults, ...conceptWhatChangedResults].forEach(obs => allIds.add(obs.id));
-
-        if (allIds.size > 0) {
-          const idsArray = Array.from(allIds);
-          const chromaResults = await this.queryChroma('what changed', Math.min(idsArray.length, 100));
-
-          const rankedIds: number[] = [];
-          for (const chromaId of chromaResults.ids) {
-            if (idsArray.includes(chromaId) && !rankedIds.includes(chromaId)) {
-              rankedIds.push(chromaId);
-            }
-          }
-
-          if (rankedIds.length > 0) {
-            results = this.sessionStore.getObservationsByIds(rankedIds, { limit: filters.limit || 20 });
-            results.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id));
-          }
-        }
-      } catch (chromaError) {
-        logger.error('SEARCH', 'Chroma search failed for changes, falling back to metadata search', {}, chromaError as Error);
-      }
-    }
-
-    if (results.length === 0) {
-      const typeResults = this.sessionSearch.findByType('change', filters);
-      const conceptResults = this.sessionSearch.findByConcept('change', filters);
-      const whatChangedResults = this.sessionSearch.findByConcept('what-changed', filters);
-
-      const allIds = new Set<number>();
-      [...typeResults, ...conceptResults, ...whatChangedResults].forEach(obs => allIds.add(obs.id));
-
-      results = Array.from(allIds).map(id =>
-        typeResults.find(obs => obs.id === id) ||
-        conceptResults.find(obs => obs.id === id) ||
-        whatChangedResults.find(obs => obs.id === id)
-      ).filter(Boolean) as ObservationSearchResult[];
-
-      results.sort((a, b) => b.created_at_epoch - a.created_at_epoch);
-      results = results.slice(0, filters.limit || 20);
-    }
-
-    if (results.length === 0) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: 'No change-related observations found'
-        }]
-      };
-    }
-
-    // Format as table
-    const header = `Found ${results.length} change-related observation(s)\n\n${this.formatter.formatTableHeader()}`;
-    const formattedResults = results.map((obs, i) => this.formatter.formatObservationIndex(obs, i));
-
-    return {
-      content: [{
-        type: 'text' as const,
-        text: header + '\n' + formattedResults.join('\n')
-      }]
-    };
+    const brainResults = await this.brainSearch(args.query || 'change modified refactor implementation', {
+      project: args.project,
+      limit: args.limit || 20,
+      tiers: [MemoryTier.Episodic, MemoryTier.Procedural],
+    });
+    return this.formatBrainMemoryList(
+      'Change memories',
+      brainResults,
+      'No change memories found',
+    );
   }
 
 
@@ -830,56 +801,16 @@ export class SearchManager {
    * Tool handler: how_it_works
    */
   async howItWorks(args: any): Promise<any> {
-    const normalized = this.normalizeParams(args);
-    const { ...filters } = normalized;
-    let results: ObservationSearchResult[] = [];
-
-    // Search for how-it-works concept observations
-    if (this.chromaSync) {
-      logger.debug('SEARCH', 'Using metadata-first + semantic ranking for how-it-works', {});
-      const metadataResults = this.sessionSearch.findByConcept('how-it-works', filters);
-
-      if (metadataResults.length > 0) {
-        const ids = metadataResults.map(obs => obs.id);
-        const chromaResults = await this.queryChroma('how it works architecture', Math.min(ids.length, 100));
-
-        const rankedIds: number[] = [];
-        for (const chromaId of chromaResults.ids) {
-          if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-            rankedIds.push(chromaId);
-          }
-        }
-
-        if (rankedIds.length > 0) {
-          results = this.sessionStore.getObservationsByIds(rankedIds, { limit: filters.limit || 20 });
-          results.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id));
-        }
-      }
-    }
-
-    if (results.length === 0) {
-      results = this.sessionSearch.findByConcept('how-it-works', filters);
-    }
-
-    if (results.length === 0) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: 'No "how it works" observations found'
-        }]
-      };
-    }
-
-    // Format as table
-    const header = `Found ${results.length} "how it works" observation(s)\n\n${this.formatter.formatTableHeader()}`;
-    const formattedResults = results.map((obs, i) => this.formatter.formatObservationIndex(obs, i));
-
-    return {
-      content: [{
-        type: 'text' as const,
-        text: header + '\n' + formattedResults.join('\n')
-      }]
-    };
+    const brainResults = await this.brainSearch(args.query || 'how it works architecture flow implementation', {
+      project: args.project,
+      limit: args.limit || 20,
+      tiers: [MemoryTier.Semantic, MemoryTier.Procedural],
+    });
+    return this.formatBrainMemoryList(
+      'How-it-works memories',
+      brainResults,
+      'No "how it works" memories found',
+    );
   }
 
 
@@ -888,55 +819,17 @@ export class SearchManager {
    */
   async searchObservations(args: any): Promise<any> {
     const normalized = this.normalizeParams(args);
-    const { query, ...options } = normalized;
-    let results: ObservationSearchResult[] = [];
+    const query = typeof normalized.query === 'string' ? normalized.query : '';
+    const brainResults = await this.brainSearch(query, {
+      project: normalized.project,
+      limit: normalized.limit || 20,
+    });
 
-    // Vector-first search via ChromaDB
-    if (this.chromaSync) {
-      logger.debug('SEARCH', 'Using hybrid semantic search (Chroma + SQLite)', {});
-
-      // Step 1: Chroma semantic search (top 100)
-      const chromaResults = await this.queryChroma(query, 100);
-      logger.debug('SEARCH', 'Chroma returned semantic matches', { matchCount: chromaResults.ids.length });
-
-      if (chromaResults.ids.length > 0) {
-        // Step 2: Filter by recency (90 days)
-        const ninetyDaysAgo = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
-        const recentIds = chromaResults.ids.filter((_id, idx) => {
-          const meta = chromaResults.metadatas[idx];
-          return meta && meta.created_at_epoch > ninetyDaysAgo;
-        });
-
-        logger.debug('SEARCH', 'Results within 90-day window', { count: recentIds.length });
-
-        // Step 3: Hydrate from SQLite in temporal order
-        if (recentIds.length > 0) {
-          const limit = options.limit || 20;
-          results = this.sessionStore.getObservationsByIds(recentIds, { orderBy: 'date_desc', limit });
-          logger.debug('SEARCH', 'Hydrated observations from SQLite', { count: results.length });
-        }
-      }
-    }
-
-    if (results.length === 0) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: `No observations found matching "${query}"`
-        }]
-      };
-    }
-
-    // Format as table
-    const header = `Found ${results.length} observation(s) matching "${query}"\n\n${this.formatter.formatTableHeader()}`;
-    const formattedResults = results.map((obs, i) => this.formatter.formatObservationIndex(obs, i));
-
-    return {
-      content: [{
-        type: 'text' as const,
-        text: header + '\n' + formattedResults.join('\n')
-      }]
-    };
+    return this.formatBrainMemoryList(
+      `Brain memories matching "${query}"`,
+      brainResults,
+      `No brain memories found matching "${query}"`,
+    );
   }
 
 
@@ -1060,65 +953,23 @@ export class SearchManager {
   async findByConcept(args: any): Promise<any> {
     const normalized = this.normalizeParams(args);
     const { concepts: concept, ...filters } = normalized;
-    let results: ObservationSearchResult[] = [];
+    const conceptValues = Array.isArray(concept) ? concept : [concept];
+    const seedQuery = conceptValues.filter(Boolean).join(' ');
+    const brainResults = await this.brainSearch(seedQuery, {
+      project: filters.project,
+      limit: (filters.limit || 20) * 2,
+    });
+    const filtered = this.filterBrainResults(
+      brainResults,
+      (cmu) => conceptValues.every((item) => cmu.content.concepts.includes(item)),
+      filters.limit || 20,
+    );
 
-    // Metadata-first, semantic-enhanced search
-    if (this.chromaSync) {
-      logger.debug('SEARCH', 'Using metadata-first + semantic ranking for concept search', {});
-
-      // Step 1: SQLite metadata filter (get all IDs with this concept)
-      const metadataResults = this.sessionSearch.findByConcept(concept, filters);
-      logger.debug('SEARCH', 'Found observations with concept', { concept, count: metadataResults.length });
-
-      if (metadataResults.length > 0) {
-        // Step 2: Chroma semantic ranking (rank by relevance to concept)
-        const ids = metadataResults.map(obs => obs.id);
-        const chromaResults = await this.queryChroma(concept, Math.min(ids.length, 100));
-
-        // Intersect: Keep only IDs that passed metadata filter, in semantic rank order
-        const rankedIds: number[] = [];
-        for (const chromaId of chromaResults.ids) {
-          if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-            rankedIds.push(chromaId);
-          }
-        }
-
-        logger.debug('SEARCH', 'Chroma ranked results by semantic relevance', { count: rankedIds.length });
-
-        // Step 3: Hydrate in semantic rank order
-        if (rankedIds.length > 0) {
-          results = this.sessionStore.getObservationsByIds(rankedIds, { limit: filters.limit || 20 });
-          // Restore semantic ranking order
-          results.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id));
-        }
-      }
-    }
-
-    // Fall back to SQLite-only if Chroma unavailable or failed
-    if (results.length === 0) {
-      logger.debug('SEARCH', 'Using SQLite-only concept search', {});
-      results = this.sessionSearch.findByConcept(concept, filters);
-    }
-
-    if (results.length === 0) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: `No observations found with concept "${concept}"`
-        }]
-      };
-    }
-
-    // Format as table
-    const header = `Found ${results.length} observation(s) with concept "${concept}"\n\n${this.formatter.formatTableHeader()}`;
-    const formattedResults = results.map((obs, i) => this.formatter.formatObservationIndex(obs, i));
-
-    return {
-      content: [{
-        type: 'text' as const,
-        text: header + '\n' + formattedResults.join('\n')
-      }]
-    };
+    return this.formatBrainMemoryList(
+      `Brain memories with concept "${seedQuery}"`,
+      filtered,
+      `No brain memories found with concept "${seedQuery}"`,
+    );
   }
 
 
@@ -1128,119 +979,23 @@ export class SearchManager {
   async findByFile(args: any): Promise<any> {
     const normalized = this.normalizeParams(args);
     const { files: rawFilePath, ...filters } = normalized;
-    // Handle both string and array (normalizeParams may split on comma)
     const filePath = Array.isArray(rawFilePath) ? rawFilePath[0] : rawFilePath;
-    let observations: ObservationSearchResult[] = [];
-    let sessions: SessionSummarySearchResult[] = [];
+    const brainResults = await this.brainSearch(filePath, {
+      project: filters.project,
+      limit: (filters.limit || 20) * 2,
+    });
+    const filtered = this.filterBrainResults(
+      brainResults,
+      (cmu) =>
+        [...cmu.content.filesRead, ...cmu.content.filesModified].some((item) => item.includes(filePath)),
+      filters.limit || 20,
+    );
 
-    // Metadata-first, semantic-enhanced search for observations
-    if (this.chromaSync) {
-      logger.debug('SEARCH', 'Using metadata-first + semantic ranking for file search', {});
-
-      // Step 1: SQLite metadata filter (get all results with this file)
-      const metadataResults = this.sessionSearch.findByFile(filePath, filters);
-      logger.debug('SEARCH', 'Found results for file', { file: filePath, observations: metadataResults.observations.length, sessions: metadataResults.sessions.length });
-
-      // Sessions: Keep as-is (already summarized, no semantic ranking needed)
-      sessions = metadataResults.sessions;
-
-      // Observations: Apply semantic ranking
-      if (metadataResults.observations.length > 0) {
-        // Step 2: Chroma semantic ranking (rank by relevance to file path)
-        const ids = metadataResults.observations.map(obs => obs.id);
-        const chromaResults = await this.queryChroma(filePath, Math.min(ids.length, 100));
-
-        // Intersect: Keep only IDs that passed metadata filter, in semantic rank order
-        const rankedIds: number[] = [];
-        for (const chromaId of chromaResults.ids) {
-          if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-            rankedIds.push(chromaId);
-          }
-        }
-
-        logger.debug('SEARCH', 'Chroma ranked observations by semantic relevance', { count: rankedIds.length });
-
-        // Step 3: Hydrate in semantic rank order
-        if (rankedIds.length > 0) {
-          observations = this.sessionStore.getObservationsByIds(rankedIds, { limit: filters.limit || 20 });
-          // Restore semantic ranking order
-          observations.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id));
-        }
-      }
-    }
-
-    // Fall back to SQLite-only if Chroma unavailable or failed
-    if (observations.length === 0 && sessions.length === 0) {
-      logger.debug('SEARCH', 'Using SQLite-only file search', {});
-      const results = this.sessionSearch.findByFile(filePath, filters);
-      observations = results.observations;
-      sessions = results.sessions;
-    }
-
-    const totalResults = observations.length + sessions.length;
-
-    if (totalResults === 0) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: `No results found for file "${filePath}"`
-        }]
-      };
-    }
-
-    // Combine observations and sessions with timestamps for date grouping
-    const combined: Array<{
-      type: 'observation' | 'session';
-      data: ObservationSearchResult | SessionSummarySearchResult;
-      epoch: number;
-      created_at: string;
-    }> = [
-      ...observations.map(obs => ({
-        type: 'observation' as const,
-        data: obs,
-        epoch: obs.created_at_epoch,
-        created_at: obs.created_at
-      })),
-      ...sessions.map(sess => ({
-        type: 'session' as const,
-        data: sess,
-        epoch: sess.created_at_epoch,
-        created_at: sess.created_at
-      }))
-    ];
-
-    // Sort by date (most recent first)
-    combined.sort((a, b) => b.epoch - a.epoch);
-
-    // Group by date for proper timeline rendering
-    const resultsByDate = groupByDate(combined, item => item.created_at);
-
-    // Format with date headers for proper date parsing by folder CLAUDE.md generator
-    const lines: string[] = [];
-    lines.push(`Found ${totalResults} result(s) for file "${filePath}"`);
-    lines.push('');
-
-    for (const [day, dayResults] of resultsByDate) {
-      lines.push(`### ${day}`);
-      lines.push('');
-      lines.push(this.formatter.formatTableHeader());
-
-      for (const result of dayResults) {
-        if (result.type === 'observation') {
-          lines.push(this.formatter.formatObservationIndex(result.data as ObservationSearchResult, 0));
-        } else {
-          lines.push(this.formatter.formatSessionIndex(result.data as SessionSummarySearchResult, 0));
-        }
-      }
-      lines.push('');
-    }
-
-    return {
-      content: [{
-        type: 'text' as const,
-        text: lines.join('\n')
-      }]
-    };
+    return this.formatBrainMemoryList(
+      `Brain memories for file "${filePath}"`,
+      filtered,
+      `No brain memories found for file "${filePath}"`,
+    );
   }
 
 
@@ -1251,65 +1006,22 @@ export class SearchManager {
     const normalized = this.normalizeParams(args);
     const { type, ...filters } = normalized;
     const typeStr = Array.isArray(type) ? type.join(', ') : type;
-    let results: ObservationSearchResult[] = [];
+    const typeValues = Array.isArray(type) ? type : [type];
+    const brainResults = await this.brainSearch(typeStr, {
+      project: filters.project,
+      limit: (filters.limit || 20) * 2,
+    });
+    const filtered = this.filterBrainResults(
+      brainResults,
+      (cmu) => typeValues.includes(cmu.memoryType),
+      filters.limit || 20,
+    );
 
-    // Metadata-first, semantic-enhanced search
-    if (this.chromaSync) {
-      logger.debug('SEARCH', 'Using metadata-first + semantic ranking for type search', {});
-
-      // Step 1: SQLite metadata filter (get all IDs with this type)
-      const metadataResults = this.sessionSearch.findByType(type, filters);
-      logger.debug('SEARCH', 'Found observations with type', { type: typeStr, count: metadataResults.length });
-
-      if (metadataResults.length > 0) {
-        // Step 2: Chroma semantic ranking (rank by relevance to type)
-        const ids = metadataResults.map(obs => obs.id);
-        const chromaResults = await this.queryChroma(typeStr, Math.min(ids.length, 100));
-
-        // Intersect: Keep only IDs that passed metadata filter, in semantic rank order
-        const rankedIds: number[] = [];
-        for (const chromaId of chromaResults.ids) {
-          if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-            rankedIds.push(chromaId);
-          }
-        }
-
-        logger.debug('SEARCH', 'Chroma ranked results by semantic relevance', { count: rankedIds.length });
-
-        // Step 3: Hydrate in semantic rank order
-        if (rankedIds.length > 0) {
-          results = this.sessionStore.getObservationsByIds(rankedIds, { limit: filters.limit || 20 });
-          // Restore semantic ranking order
-          results.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id));
-        }
-      }
-    }
-
-    // Fall back to SQLite-only if Chroma unavailable or failed
-    if (results.length === 0) {
-      logger.debug('SEARCH', 'Using SQLite-only type search', {});
-      results = this.sessionSearch.findByType(type, filters);
-    }
-
-    if (results.length === 0) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: `No observations found with type "${typeStr}"`
-        }]
-      };
-    }
-
-    // Format as table
-    const header = `Found ${results.length} observation(s) with type "${typeStr}"\n\n${this.formatter.formatTableHeader()}`;
-    const formattedResults = results.map((obs, i) => this.formatter.formatObservationIndex(obs, i));
-
-    return {
-      content: [{
-        type: 'text' as const,
-        text: header + '\n' + formattedResults.join('\n')
-      }]
-    };
+    return this.formatBrainMemoryList(
+      `Brain memories with type "${typeStr}"`,
+      filtered,
+      `No brain memories found with type "${typeStr}"`,
+    );
   }
 
 
@@ -1317,118 +1029,23 @@ export class SearchManager {
    * Tool handler: get_recent_context
    */
   async getRecentContext(args: any): Promise<any> {
-    const project = args.project || basename(process.cwd());
-    const limit = args.limit || 3;
+    const project = (args.project && getProjectAliases(args.project)[0]) || getProjectContext(process.cwd()).canonical;
+    const limit = args.limit || 6;
+    const brainResults = await this.brainSearch('', {
+      project,
+      limit,
+      tiers: [MemoryTier.Semantic, MemoryTier.Procedural, MemoryTier.Episodic],
+    });
+    const lines: string[] = ['# Recent Brain Context', ''];
 
-    const sessions = this.sessionStore.getRecentSessionsWithStatus(project, limit);
-
-    if (sessions.length === 0) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: `# Recent Session Context\n\nNo previous sessions found for project "${project}".`
-        }]
-      };
-    }
-
-    const lines: string[] = [];
-    lines.push('# Recent Session Context');
-    lines.push('');
-    lines.push(`Showing last ${sessions.length} session(s) for **${project}**:`);
-    lines.push('');
-
-    for (const session of sessions) {
-      if (!session.memory_session_id) continue;
-
-      lines.push('---');
+    if (brainResults.length === 0) {
+      lines.push(`No brain memories found for project "${project}".`);
+    } else {
+      lines.push(`Showing ${brainResults.length} most relevant memories for **${project}**.`);
       lines.push('');
-
-      if (session.has_summary) {
-        const summary = this.sessionStore.getSummaryForSession(session.memory_session_id);
-        if (summary) {
-          const promptLabel = summary.prompt_number ? ` (Prompt #${summary.prompt_number})` : '';
-          lines.push(`**Summary${promptLabel}**`);
-          lines.push('');
-
-          if (summary.request) lines.push(`**Request:** ${summary.request}`);
-          if (summary.completed) lines.push(`**Completed:** ${summary.completed}`);
-          if (summary.learned) lines.push(`**Learned:** ${summary.learned}`);
-          if (summary.next_steps) lines.push(`**Next Steps:** ${summary.next_steps}`);
-
-          // Handle files_read
-          if (summary.files_read) {
-            try {
-              const filesRead = JSON.parse(summary.files_read);
-              if (Array.isArray(filesRead) && filesRead.length > 0) {
-                lines.push(`**Files Read:** ${filesRead.join(', ')}`);
-              }
-            } catch (error) {
-              logger.debug('WORKER', 'files_read is plain string, using as-is', {}, error as Error);
-              if (summary.files_read.trim()) {
-                lines.push(`**Files Read:** ${summary.files_read}`);
-              }
-            }
-          }
-
-          // Handle files_edited
-          if (summary.files_edited) {
-            try {
-              const filesEdited = JSON.parse(summary.files_edited);
-              if (Array.isArray(filesEdited) && filesEdited.length > 0) {
-                lines.push(`**Files Edited:** ${filesEdited.join(', ')}`);
-              }
-            } catch (error) {
-              logger.debug('WORKER', 'files_edited is plain string, using as-is', {}, error as Error);
-              if (summary.files_edited.trim()) {
-                lines.push(`**Files Edited:** ${summary.files_edited}`);
-              }
-            }
-          }
-
-          const date = new Date(summary.created_at).toLocaleString();
-          lines.push(`**Date:** ${date}`);
-        }
-      } else if (session.status === 'active') {
-        lines.push('**In Progress**');
-        lines.push('');
-
-        if (session.user_prompt) {
-          lines.push(`**Request:** ${session.user_prompt}`);
-        }
-
-        const observations = this.sessionStore.getObservationsForSession(session.memory_session_id);
-        if (observations.length > 0) {
-          lines.push('');
-          lines.push(`**Observations (${observations.length}):**`);
-          for (const obs of observations) {
-            lines.push(`- ${obs.title}`);
-          }
-        } else {
-          lines.push('');
-          lines.push('*No observations yet*');
-        }
-
-        lines.push('');
-        lines.push('**Status:** Active - summary pending');
-
-        const date = new Date(session.started_at).toLocaleString();
-        lines.push(`**Date:** ${date}`);
-      } else {
-        lines.push(`**${session.status.charAt(0).toUpperCase() + session.status.slice(1)}**`);
-        lines.push('');
-
-        if (session.user_prompt) {
-          lines.push(`**Request:** ${session.user_prompt}`);
-        }
-
-        lines.push('');
-        lines.push(`**Status:** ${session.status} - no summary available`);
-
-        const date = new Date(session.started_at).toLocaleString();
-        lines.push(`**Date:** ${date}`);
+      for (const result of brainResults) {
+        lines.push(`- [${result.cmu.tier}] ${result.cmu.content.title}: ${result.cmu.content.narrative.slice(0, 180)}`);
       }
-
-      lines.push('');
     }
 
     return {

@@ -4,7 +4,7 @@ import { fileEditHandler } from '../../cli/handlers/file-edit.js';
 import { sessionCompleteHandler } from '../../cli/handlers/session-complete.js';
 import { ensureWorkerRunning, workerHttpRequest } from '../../shared/worker-utils.js';
 import { logger } from '../../utils/logger.js';
-import { getProjectContext, getProjectName } from '../../utils/project-name.js';
+import { getProjectAliases, getProjectContext, getProjectName } from '../../utils/project-name.js';
 import { writeAgentsMd } from '../../utils/agents-md-utils.js';
 import { resolveFieldSpec, resolveFields, matchesRule } from './field-utils.js';
 import { expandHomePath } from './config.js';
@@ -99,9 +99,9 @@ export class TranscriptEventProcessor {
     const ctx = { watch, schema, session } as any;
     const fieldSpec = event.fields?.project ?? (schema.projectPath ? { path: schema.projectPath } : undefined);
     const resolved = resolveFieldSpec(fieldSpec, entry, ctx);
-    if (typeof resolved === 'string' && resolved.trim()) return resolved;
+    if (typeof resolved === 'string' && resolved.trim()) return getProjectAliases(resolved)[0];
     if (watch.project) return watch.project;
-    if (session.cwd) return getProjectName(session.cwd);
+    if (session.cwd) return getProjectContext(session.cwd).canonical;
     return session.project;
   }
 
@@ -150,10 +150,10 @@ export class TranscriptEventProcessor {
         await this.handleToolResult(session, fields);
         break;
       case 'observation':
-        await this.sendObservation(session, fields);
+        await this.sendObservation(session, fields, watch.name);
         break;
       case 'file_edit':
-        await this.sendFileEdit(session, fields);
+        await this.sendFileEdit(session, fields, watch.name);
         break;
       case 'session_end':
         await this.handleSessionEnd(session, watch);
@@ -181,7 +181,7 @@ export class TranscriptEventProcessor {
       sessionId: session.sessionId,
       cwd,
       prompt,
-      platform: 'transcript'
+      platform: watch.name
     });
   }
 
@@ -203,7 +203,7 @@ export class TranscriptEventProcessor {
         await this.sendFileEdit(session, {
           filePath,
           edits: [{ type: 'apply_patch', patch: toolInput }]
-        });
+        }, 'codex');
       }
     }
 
@@ -212,7 +212,7 @@ export class TranscriptEventProcessor {
         toolName,
         toolInput,
         toolResponse
-      });
+      }, 'codex');
     }
   }
 
@@ -236,11 +236,11 @@ export class TranscriptEventProcessor {
         toolName: name,
         toolInput,
         toolResponse
-      });
+      }, 'codex');
     }
   }
 
-  private async sendObservation(session: SessionState, fields: Record<string, unknown>): Promise<void> {
+  private async sendObservation(session: SessionState, fields: Record<string, unknown>, platform = 'transcript'): Promise<void> {
     const toolName = typeof fields.toolName === 'string' ? fields.toolName : undefined;
     if (!toolName) return;
 
@@ -250,11 +250,11 @@ export class TranscriptEventProcessor {
       toolName,
       toolInput: this.maybeParseJson(fields.toolInput),
       toolResponse: this.maybeParseJson(fields.toolResponse),
-      platform: 'transcript'
+      platform
     });
   }
 
-  private async sendFileEdit(session: SessionState, fields: Record<string, unknown>): Promise<void> {
+  private async sendFileEdit(session: SessionState, fields: Record<string, unknown>, platform = 'transcript'): Promise<void> {
     const filePath = typeof fields.filePath === 'string' ? fields.filePath : undefined;
     if (!filePath) return;
 
@@ -263,7 +263,7 @@ export class TranscriptEventProcessor {
       cwd: session.cwd ?? process.cwd(),
       filePath,
       edits: Array.isArray(fields.edits) ? fields.edits : undefined,
-      platform: 'transcript'
+      platform
     });
   }
 

@@ -7,7 +7,7 @@ import { BrainEngine, createBrainEngine } from "../engine/brain/engine";
 import { parseBrainSettings } from "../config/brain-settings";
 import { ClaudeMemDatabase } from "../services/sqlite/Database";
 import { DB_PATH } from "../shared/paths";
-import path from "path";
+import { getProjectAliases, getProjectContext } from "../utils/project-name";
 
 type EngineState = {
   db: ClaudeMemDatabase;
@@ -74,8 +74,18 @@ function tokenizeArgs(input: string): string[] {
   return raw.map((arg) => arg.replace(QUOTE_TRIM_REGEX, ""));
 }
 
+function projectContext(input: PluginInput) {
+  return getProjectContext(input.project.worktree);
+}
+
 function projectName(input: PluginInput): string {
-  return input.project.name || path.basename(input.project.worktree);
+  return projectContext(input).canonical;
+}
+
+function projectAliases(input: PluginInput): string[] {
+  const context = projectContext(input);
+  const configuredName = input.project.name ? getProjectAliases(input.project.name) : [];
+  return Array.from(new Set([...context.allProjects, ...configuredName]));
 }
 
 function extractConcepts(text: string): string[] {
@@ -87,6 +97,10 @@ function extractConcepts(text: string): string[] {
         .filter((token) => token.length >= 4),
     ),
   ).slice(0, 12);
+}
+
+function withSourceConcepts(source: string, values: string[]): string[] {
+  return Array.from(new Set([`source:${source}`, ...values])).slice(0, 12);
 }
 
 function summarizeTitle(text: string, fallback: string): string {
@@ -111,7 +125,7 @@ async function captureCommandMemory(
       title: `Procedure: /${name}`,
       narrative: combined.slice(0, 2000),
       facts: argumentsText ? [argumentsText.slice(0, 300)] : [],
-      concepts: [name, ...extractConcepts(combined)].slice(0, 12),
+      concepts: withSourceConcepts("opencode", [name, ...extractConcepts(combined)]),
       filesRead: [],
       filesModified: [],
     },
@@ -149,7 +163,7 @@ async function captureUserPromptMemory(
       title: summarizeTitle(text, "User prompt"),
       narrative: text.slice(0, 2000),
       facts: [],
-      concepts: extractConcepts(text),
+      concepts: withSourceConcepts("opencode", extractConcepts(text)),
       filesRead,
       filesModified: [],
     },
@@ -158,7 +172,12 @@ async function captureUserPromptMemory(
   );
 }
 
-async function executeMemoryCommand(engine: BrainEngine, command: string, argumentsText: string): Promise<string | undefined> {
+async function executeMemoryCommand(
+  engine: BrainEngine,
+  command: string,
+  argumentsText: string,
+  projects: string[],
+): Promise<string | undefined> {
   const args = tokenizeArgs(argumentsText);
 
   if (command === MEM_SEARCH) {
@@ -176,7 +195,7 @@ async function executeMemoryCommand(engine: BrainEngine, command: string, argume
       return `Usage: /${MEM_SEARCH} <query> [limit]`;
     }
 
-    const results = await engine.retrieveMemories(query, {}, limit);
+    const results = await engine.retrieveMemories(query, { projects }, limit);
     if (results.length === 0) {
       return "No memories found";
     }
@@ -251,6 +270,7 @@ function formatStatsOutput(stats: Awaited<ReturnType<BrainEngine["getStats"]>>):
 
 export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
   const engine = await getEngine(pluginInput);
+  const projects = projectAliases(pluginInput);
 
   return {
     config: async (config) => {
@@ -345,7 +365,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
     },
 
     "command.execute.before": async (commandInput, output) => {
-      const result = await executeMemoryCommand(engine, commandInput.command, commandInput.arguments);
+      const result = await executeMemoryCommand(engine, commandInput.command, commandInput.arguments, projects);
       if (!result) return;
       output.parts = [
         {
@@ -366,11 +386,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
 
       if (!query) return;
 
-      const results = await engine.retrieveMemories(
-        query,
-        {},
-        10
-      );
+      const results = await engine.retrieveMemories(query, { projects }, 10);
 
       if (results.length > 0) {
         const context = results
@@ -411,7 +427,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
             title: `Tool: ${input.tool}`,
             narrative: output.output.substring(0, 2000),
             facts: argumentText.length > 2 ? [argumentText.slice(0, 300)] : [],
-            concepts: [input.tool, ...extractConcepts(output.output)].slice(0, 12),
+            concepts: withSourceConcepts("opencode", [input.tool, ...extractConcepts(output.output)]),
             filesRead: files,
             filesModified: input.tool.includes("edit") || input.tool.includes("write") ? files : [],
           },
@@ -422,7 +438,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
     },
 
     "experimental.session.compacting": async (_input, output) => {
-      const results = await engine.retrieveMemories("", {}, 100);
+      const results = await engine.retrieveMemories("", { projects }, 100);
       const memories = results.map((r) => r.cmu).slice(0, 50);
       if (memories.length === 0) return;
 
@@ -437,9 +453,14 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
     },
 
     "experimental.chat.system.transform": async (_input, output) => {
-      const results = await engine.retrieveMemories("", {
-        tiers: ["semantic", "procedural"] as never,
-      }, 8);
+      const results = await engine.retrieveMemories(
+        "",
+        {
+          projects,
+          tiers: ["semantic", "procedural"] as never,
+        },
+        8,
+      );
 
       if (results.length === 0) return;
 

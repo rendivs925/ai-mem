@@ -9,8 +9,13 @@ import express, { Request, Response } from 'express';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { logger } from '../../../../utils/logger.js';
 import type { DatabaseManager } from '../../DatabaseManager.js';
+import { createBrainEngine, type BrainEngine } from '../../../../engine/brain/engine.js';
+import { getProjectAliases } from '../../../../utils/project-name.js';
 
 export class MemoryRoutes extends BaseRouteHandler {
+  private brainEngine: BrainEngine | null = null;
+  private brainEngineReady: Promise<BrainEngine> | null = null;
+
   constructor(
     private dbManager: DatabaseManager,
     private defaultProject: string
@@ -22,13 +27,26 @@ export class MemoryRoutes extends BaseRouteHandler {
     app.post('/api/memory/save', this.handleSaveMemory.bind(this));
   }
 
+  private async getBrainEngine(): Promise<BrainEngine> {
+    if (this.brainEngine) return this.brainEngine;
+    if (!this.brainEngineReady) {
+      this.brainEngineReady = (async () => {
+        const engine = createBrainEngine(this.dbManager.getSessionStore().db);
+        await engine.initialize();
+        this.brainEngine = engine;
+        return engine;
+      })();
+    }
+    return this.brainEngineReady;
+  }
+
   /**
    * POST /api/memory/save - Save a manual memory/observation
    * Body: { text: string, title?: string, project?: string }
    */
   private handleSaveMemory = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const { text, title, project } = req.body;
-    const targetProject = project || this.defaultProject;
+    const targetProject = getProjectAliases(project || this.defaultProject)[0];
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       this.badRequest(res, 'text is required and must be non-empty');
@@ -36,58 +54,38 @@ export class MemoryRoutes extends BaseRouteHandler {
     }
 
     const sessionStore = this.dbManager.getSessionStore();
-    const chromaSync = this.dbManager.getChromaSync();
 
     // 1. Get or create manual session for project
     const memorySessionId = sessionStore.getOrCreateManualSession(targetProject);
-
-    // 2. Build observation
-    const observation = {
-      type: 'discovery',  // Use existing valid type
-      title: title || text.substring(0, 60).trim() + (text.length > 60 ? '...' : ''),
-      subtitle: 'Manual memory',
-      facts: [] as string[],
-      narrative: text,
-      concepts: [] as string[],
-      files_read: [] as string[],
-      files_modified: [] as string[]
-    };
-
-    // 3. Store to SQLite
-    const result = sessionStore.storeObservation(
+    const engine = await this.getBrainEngine();
+    const stored = await engine.captureMemory(
       memorySessionId,
       targetProject,
-      observation,
-      0,  // promptNumber
-      0   // discoveryTokens
+      {
+        title: title || text.substring(0, 60).trim() + (text.length > 60 ? '...' : ''),
+        narrative: text,
+        facts: [],
+        concepts: Array.from(new Set(text.toLowerCase().split(/[^a-z0-9_.-]+/).filter(token => token.length >= 4))).slice(0, 12),
+        filesRead: [],
+        filesModified: [],
+      },
+      'discovery',
+      0.7,
     );
 
     logger.info('HTTP', 'Manual observation saved', {
-      id: result.id,
+      id: stored.id,
       project: targetProject,
-      title: observation.title
-    });
-
-    // 4. Sync to ChromaDB (async, fire-and-forget)
-    chromaSync.syncObservation(
-      result.id,
-      memorySessionId,
-      targetProject,
-      observation,
-      0,
-      result.createdAtEpoch,
-      0
-    ).catch(err => {
-      logger.error('CHROMA', 'ChromaDB sync failed', { id: result.id }, err as Error);
+      title: stored.content.title
     });
 
     // 5. Return success
     res.json({
       success: true,
-      id: result.id,
-      title: observation.title,
+      id: stored.id,
+      title: stored.content.title,
       project: targetProject,
-      message: `Memory saved as observation #${result.id}`
+      message: `Memory saved as observation #${stored.id}`
     });
   });
 }

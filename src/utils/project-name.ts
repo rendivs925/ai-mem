@@ -2,6 +2,14 @@ import path from 'path';
 import { logger } from './logger.js';
 import { detectWorktree } from './worktree.js';
 
+function normalizeProjectPath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '');
+}
+
+function splitProjectSegments(value: string): string[] {
+  return normalizeProjectPath(value).split('/').filter(Boolean);
+}
+
 /**
  * Extract project name from working directory path
  * Handles edge cases: null/undefined cwd, drive roots, trailing slashes
@@ -40,16 +48,61 @@ export function getProjectName(cwd: string | null | undefined): string {
 }
 
 /**
+ * Get a collision-resistant project key using the last two path segments.
+ * Example: /home/user/work/opencode-rs -> work/opencode-rs
+ */
+export function getCanonicalProjectName(cwd: string | null | undefined): string {
+  if (!cwd || cwd.trim() === '') {
+    return getProjectName(cwd);
+  }
+
+  const resolved = normalizeProjectPath(path.resolve(cwd));
+  const segments = splitProjectSegments(resolved);
+
+  if (segments.length === 0) {
+    return getProjectName(cwd);
+  }
+
+  if (segments.length === 1) {
+    return segments[0]!;
+  }
+
+  return `${segments[segments.length - 2]}/${segments[segments.length - 1]}`;
+}
+
+export function getProjectAliases(project: string | null | undefined): string[] {
+  if (!project || project.trim() === '') {
+    return ['unknown-project'];
+  }
+
+  const normalized = normalizeProjectPath(project.trim());
+  const segments = splitProjectSegments(normalized);
+  const aliases = new Set<string>([normalized]);
+
+  if (segments.length > 0) {
+    aliases.add(segments[segments.length - 1]!);
+  }
+
+  if (segments.length > 1) {
+    aliases.add(`${segments[segments.length - 2]}/${segments[segments.length - 1]}`);
+  }
+
+  return Array.from(aliases);
+}
+
+/**
  * Project context with worktree awareness
  */
 export interface ProjectContext {
   /** The current project name (worktree or main repo) */
   primary: string;
+  /** Collision-resistant project key */
+  canonical: string;
   /** Parent project name if in a worktree, null otherwise */
   parent: string | null;
   /** True if currently in a worktree */
   isWorktree: boolean;
-  /** All projects to query: [primary] for main repo, [parent, primary] for worktree */
+  /** All project aliases to query across tools and historical naming schemes */
   allProjects: string[];
 }
 
@@ -64,22 +117,42 @@ export interface ProjectContext {
  */
 export function getProjectContext(cwd: string | null | undefined): ProjectContext {
   const primary = getProjectName(cwd);
+  const canonical = getCanonicalProjectName(cwd);
 
   if (!cwd) {
-    return { primary, parent: null, isWorktree: false, allProjects: [primary] };
+    return {
+      primary,
+      canonical,
+      parent: null,
+      isWorktree: false,
+      allProjects: getProjectAliases(canonical),
+    };
   }
 
   const worktreeInfo = detectWorktree(cwd);
 
   if (worktreeInfo.isWorktree && worktreeInfo.parentProjectName) {
+    const allProjects = new Set<string>([
+      ...getProjectAliases(canonical),
+      ...getProjectAliases(worktreeInfo.parentProjectName),
+      primary,
+    ]);
+
     // In a worktree: include parent first for chronological ordering
     return {
-      primary,
+      primary: canonical,
+      canonical,
       parent: worktreeInfo.parentProjectName,
       isWorktree: true,
-      allProjects: [worktreeInfo.parentProjectName, primary]
+      allProjects: Array.from(allProjects),
     };
   }
 
-  return { primary, parent: null, isWorktree: false, allProjects: [primary] };
+  return {
+    primary: canonical,
+    canonical,
+    parent: null,
+    isWorktree: false,
+    allProjects: getProjectAliases(canonical),
+  };
 }

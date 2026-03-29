@@ -22,11 +22,15 @@ import { PrivacyCheckValidator } from '../../validation/PrivacyCheckValidator.js
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
 import { getProcessBySession, ensureProcessExit } from '../../ProcessRegistry.js';
+import { createBrainEngine, type BrainEngine } from '../../../../engine/brain/engine.js';
+import { getProjectAliases, getProjectContext } from '../../../../utils/project-name.js';
 
 export class SessionRoutes extends BaseRouteHandler {
   private completionHandler: SessionCompletionHandler;
   private spawnInProgress = new Map<number, boolean>();
   private crashRecoveryScheduled = new Set<number>();
+  private brainEngine: BrainEngine | null = null;
+  private brainEngineReady: Promise<BrainEngine> | null = null;
 
   constructor(
     private sessionManager: SessionManager,
@@ -42,6 +46,33 @@ export class SessionRoutes extends BaseRouteHandler {
       sessionManager,
       eventBroadcaster
     );
+  }
+
+  private async getBrainEngine(): Promise<BrainEngine> {
+    if (this.brainEngine) return this.brainEngine;
+    if (!this.brainEngineReady) {
+      this.brainEngineReady = (async () => {
+        const engine = createBrainEngine(this.dbManager.getSessionStore().db);
+        await engine.initialize();
+        this.brainEngine = engine;
+        return engine;
+      })();
+    }
+    return this.brainEngineReady;
+  }
+
+  private extractConcepts(text: string): string[] {
+    return Array.from(new Set(
+      text
+        .toLowerCase()
+        .split(/[^a-z0-9_.:-]+/)
+        .filter((token) => token.length >= 4)
+    )).slice(0, 12);
+  }
+
+  private sourceConcepts(platform: unknown, values: string[]): string[] {
+    const source = typeof platform === 'string' && platform.trim() ? platform.trim() : 'claude-code';
+    return Array.from(new Set([`source:${source}`, ...values])).slice(0, 12);
   }
 
   /**
@@ -495,7 +526,7 @@ export class SessionRoutes extends BaseRouteHandler {
    * POST /api/sessions/observations
    * Body: { contentSessionId, tool_name, tool_input, tool_response, cwd }
    */
-  private handleObservationsByClaudeId = this.wrapHandler((req: Request, res: Response): void => {
+  private handleObservationsByClaudeId = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const { contentSessionId, tool_name, tool_input, tool_response, cwd } = req.body;
 
     if (!contentSessionId) {
@@ -577,6 +608,29 @@ export class SessionRoutes extends BaseRouteHandler {
 
       // Broadcast observation queued event
       this.eventBroadcaster.broadcastObservationQueued(sessionDbId);
+
+      const project = cwd ? getProjectContext(cwd).canonical : (store.getSessionById(sessionDbId)?.project || 'unknown');
+      const inputText = typeof cleanedToolInput === 'string' ? cleanedToolInput : JSON.stringify(cleanedToolInput);
+      const outputText = typeof cleanedToolResponse === 'string' ? cleanedToolResponse : JSON.stringify(cleanedToolResponse);
+      const narrative = [inputText, outputText].filter(Boolean).join('\n').slice(0, 2000);
+
+      if (narrative.trim()) {
+        const engine = await this.getBrainEngine();
+        await engine.captureMemory(
+          contentSessionId,
+          project,
+          {
+            title: `Tool: ${tool_name}`,
+            narrative,
+            facts: inputText ? [inputText.slice(0, 300)] : [],
+            concepts: this.sourceConcepts(req.body.platform, [tool_name, ...this.extractConcepts(narrative)]),
+            filesRead: [],
+            filesModified: [],
+          },
+          tool_name.toLowerCase().includes('edit') || tool_name.toLowerCase().includes('write') ? 'change' : 'discovery',
+          0.65,
+        );
+      }
 
       res.json({ status: 'queued' });
     } catch (error) {
@@ -691,7 +745,7 @@ export class SessionRoutes extends BaseRouteHandler {
    *
    * Returns: { sessionDbId, promptNumber, skipped: boolean, reason?: string }
    */
-  private handleSessionInitByClaudeId = this.wrapHandler((req: Request, res: Response): void => {
+  private handleSessionInitByClaudeId = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const { contentSessionId } = req.body;
 
     // Only contentSessionId is truly required — Cursor and other platforms
@@ -699,6 +753,7 @@ export class SessionRoutes extends BaseRouteHandler {
     const project = req.body.project || 'unknown';
     const prompt = req.body.prompt || '[media prompt]';
     const customTitle = req.body.customTitle || undefined;
+    const platform = req.body.platform;
 
     logger.info('HTTP', 'SessionRoutes: handleSessionInitByClaudeId called', {
       contentSessionId,
@@ -758,6 +813,23 @@ export class SessionRoutes extends BaseRouteHandler {
 
     // Step 5: Save cleaned user prompt
     store.saveUserPrompt(contentSessionId, promptNumber, cleanedPrompt);
+
+    const engine = await this.getBrainEngine();
+    const canonicalProject = getProjectAliases(project)[0];
+    await engine.captureMemory(
+      contentSessionId,
+      canonicalProject,
+      {
+        title: cleanedPrompt.slice(0, 80),
+        narrative: cleanedPrompt.slice(0, 2000),
+        facts: [],
+        concepts: this.sourceConcepts(platform, this.extractConcepts(cleanedPrompt)),
+        filesRead: [],
+        filesModified: [],
+      },
+      'discovery',
+      0.55,
+    );
 
     // Step 6: Check if SDK agent is already running for this session (#1079)
     // If contextInjected is true, the hook should skip re-initializing the SDK agent

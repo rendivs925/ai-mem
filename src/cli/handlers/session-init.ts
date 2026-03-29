@@ -6,7 +6,7 @@
 
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
 import { ensureWorkerRunning, workerHttpRequest } from '../../shared/worker-utils.js';
-import { getProjectName } from '../../utils/project-name.js';
+import { getProjectContext } from '../../utils/project-name.js';
 import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { isProjectExcluded } from '../../utils/project-filter.js';
@@ -41,7 +41,7 @@ export const sessionInitHandler: EventHandler = {
     // Use placeholder so sessions still get created and tracked for memory
     const prompt = (!rawPrompt || !rawPrompt.trim()) ? '[media prompt]' : rawPrompt;
 
-    const project = getProjectName(cwd);
+    const project = getProjectContext(cwd).canonical;
 
     logger.debug('HOOK', 'session-init: Calling /api/sessions/init', { contentSessionId: sessionId, project });
 
@@ -52,7 +52,8 @@ export const sessionInitHandler: EventHandler = {
       body: JSON.stringify({
         contentSessionId: sessionId,
         project,
-        prompt
+        prompt,
+        platform: input.platform || 'claude-code'
       })
     });
 

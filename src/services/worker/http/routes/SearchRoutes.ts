@@ -183,7 +183,8 @@ export class SearchRoutes extends BaseRouteHandler {
     const contextText = await generateContext(
       {
         session_id: 'preview-' + Date.now(),
-        cwd: cwd
+        cwd: cwd,
+        projects: [projectName],
       },
       true  // useColors=true for ANSI terminal output
     );

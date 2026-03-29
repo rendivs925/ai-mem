@@ -2,6 +2,7 @@
 // Integrates ACT-R activation, spreading activation, and pruning
 
 import type { Database } from "bun:sqlite";
+import path from "path";
 import type { CMU, RetrievalResult, SearchFilters, MemoryTier } from "../../types/brain/memory";
 import { MemoryTier as Tier } from "../../types/brain/memory";
 import { calculateBaseActivation, calculateRetentionScore } from "./activation";
@@ -11,10 +12,28 @@ import { SQLiteStorageBackend } from "./sqlite-storage";
 import { parseBrainSettings, defaultBrainSettings, type BrainSettings } from "../../config/brain-settings";
 import type { StorageBackend } from "./storage";
 
+function projectMatches(project: string, allowedProjects: string[]): boolean {
+  if (allowedProjects.includes(project)) {
+    return true;
+  }
+
+  const normalizedProject = project.replace(/\\/g, "/");
+  const projectBase = path.posix.basename(normalizedProject);
+
+  return allowedProjects.some((allowed) => {
+    const normalizedAllowed = allowed.replace(/\\/g, "/");
+    return (
+      normalizedAllowed === normalizedProject ||
+      path.posix.basename(normalizedAllowed) === projectBase
+    );
+  });
+}
+
 export class BrainEngine {
   private storage: StorageBackend;
   private settings: BrainSettings;
   private graph: MemoryGraph | null = null;
+  private lastSyncToken: string | null = null;
 
   constructor(db: Database, settings?: Partial<BrainSettings>) {
     this.storage = new SQLiteStorageBackend(db);
@@ -22,10 +41,22 @@ export class BrainEngine {
   }
 
   async initialize(): Promise<void> {
+    await this.refreshGraph();
+  }
+
+  private async refreshGraph(): Promise<void> {
     this.graph = new MemoryGraph();
     const memories = await this.storage.getAllMemories();
     for (const memory of memories) {
       this.graph.addNode(memory);
+    }
+    this.lastSyncToken = await this.storage.getSyncToken();
+  }
+
+  private async ensureFreshGraph(): Promise<void> {
+    const currentToken = await this.storage.getSyncToken();
+    if (!this.graph || this.lastSyncToken !== currentToken) {
+      await this.refreshGraph();
     }
   }
 
@@ -71,6 +102,7 @@ export class BrainEngine {
     if (this.graph) {
       this.graph.addNode(stored);
     }
+    this.lastSyncToken = null;
 
     return stored;
   }
@@ -80,6 +112,7 @@ export class BrainEngine {
     filters?: SearchFilters,
     limit: number = 50
   ): Promise<RetrievalResult[]> {
+    await this.ensureFreshGraph();
     const keywords = query.toLowerCase().split(/\s+/).filter(Boolean);
     const memories = await this.storage.searchByKeywords(keywords, limit * 2);
 
@@ -92,7 +125,7 @@ export class BrainEngine {
 
     if (filters?.projects?.length) {
       const allowedProjects = filters.projects;
-      filtered = filtered.filter((m: CMU) => allowedProjects.includes(m.project));
+      filtered = filtered.filter((m: CMU) => projectMatches(m.project, allowedProjects));
     }
 
     if (filters?.minImportance !== undefined) {
@@ -150,6 +183,7 @@ export class BrainEngine {
       );
       await this.storage.updateActivation(memoryId, newActivation);
     }
+    this.lastSyncToken = null;
   }
 
   async getMemoryById(memoryId: string): Promise<CMU | null> {
@@ -157,6 +191,7 @@ export class BrainEngine {
   }
 
   async consolidate(): Promise<{ merged: number; pruned: number; linked: number }> {
+    await this.ensureFreshGraph();
     const memories = await this.storage.getAllMemories();
 
     const result = await runConsolidation(memories, {
@@ -176,9 +211,7 @@ export class BrainEngine {
       await this.storage.deleteMemory(id);
     }
 
-    if (this.graph) {
-      await this.initialize();
-    }
+    await this.refreshGraph();
 
     return {
       merged: result.merged,
@@ -192,6 +225,7 @@ export class BrainEngine {
     byTier: Record<MemoryTier, number>;
     avgActivation: number;
   }> {
+    await this.ensureFreshGraph();
     const memories = await this.storage.getAllMemories();
 
     const byTier: Record<MemoryTier, number> = {

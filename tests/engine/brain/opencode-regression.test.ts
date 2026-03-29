@@ -3,6 +3,7 @@ import { ClaudeMemDatabase } from "../../../src/services/sqlite/Database.js";
 import { createBrainEngine } from "../../../src/engine/brain/engine.js";
 import { calculateBaseActivation } from "../../../src/engine/brain/activation.js";
 import { defaultBrainSettings, parseBrainSettings } from "../../../src/config/brain-settings.js";
+import { getProjectAliases, getProjectContext } from "../../../src/utils/project-name.js";
 
 describe("OpenCode brain integration regressions", () => {
   const databases: ClaudeMemDatabase[] = [];
@@ -188,5 +189,36 @@ describe("OpenCode brain integration regressions", () => {
     expect(remaining.map((item) => item.cmu.id)).not.toContain(duplicate.id);
     expect(remaining.length).toBe(2);
     expect(refreshedFirst?.associations).toContain(related.id);
+  });
+
+  it("matches canonical and legacy project names across tools", async () => {
+    const db = new ClaudeMemDatabase(":memory:");
+    databases.push(db);
+
+    const engine = createBrainEngine(db.db);
+    await engine.initialize();
+
+    const context = getProjectContext("/home/rendi/projects/opencode-rs");
+    await engine.captureMemory(
+      "session-7",
+      context.canonical,
+      {
+        title: "Shared memory",
+        narrative: "Persisted once and reusable across tools",
+        facts: [],
+        concepts: ["source:opencode", "shared"],
+        filesRead: [],
+        filesModified: [],
+      },
+      "discovery",
+      0.7,
+    );
+
+    const legacyResults = await engine.retrieveMemories("shared", { projects: ["opencode-rs"] }, 10);
+    const canonicalResults = await engine.retrieveMemories("shared", { projects: getProjectAliases(context.canonical) }, 10);
+
+    expect(legacyResults).toHaveLength(1);
+    expect(canonicalResults).toHaveLength(1);
+    expect(legacyResults[0]?.cmu.project).toBe(context.canonical);
   });
 });

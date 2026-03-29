@@ -4,6 +4,7 @@ import type { CMU, SearchFilters, MemoryTier } from "../../types/brain/memory";
 
 export interface StorageBackend {
   getAllMemories(): Promise<CMU[]>;
+  getSyncToken(): Promise<string>;
   getMemoryById(id: string): Promise<CMU | null>;
   getMemoriesByProject(project: string): Promise<CMU[]>;
   getMemoriesByTier(tier: MemoryTier): Promise<CMU[]>;

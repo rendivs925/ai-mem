@@ -9,8 +9,10 @@ import path from 'path';
 import { homedir } from 'os';
 import { unlinkSync } from 'fs';
 import { SessionStore } from '../sqlite/SessionStore.js';
+import { createBrainEngine } from '../../engine/brain/engine.js';
+import { MemoryTier } from '../../types/brain/memory.js';
 import { logger } from '../../utils/logger.js';
-import { getProjectName } from '../../utils/project-name.js';
+import { getProjectContext } from '../../utils/project-name.js';
 
 import type { ContextInput, ContextConfig, Observation, SessionSummary } from './types.js';
 import { loadContextConfig } from './ContextConfigLoader.js';
@@ -77,6 +79,7 @@ function buildContextOutput(
   project: string,
   observations: Observation[],
   summaries: SessionSummary[],
+  longTermMemories: Array<{ tier: string; title: string; narrative: string }>,
   config: ContextConfig,
   cwd: string,
   sessionId: string | undefined,
@@ -107,6 +110,15 @@ function buildContextOutput(
     output.push(...renderSummaryFields(mostRecentSummary, useColors));
   }
 
+  if (longTermMemories.length > 0) {
+    output.push(useColors ? 'Long-Term Brain Memory' : '## Long-Term Brain Memory');
+    output.push('');
+    for (const memory of longTermMemories.slice(0, 6)) {
+      output.push(`- [${memory.tier}] ${memory.title}: ${memory.narrative.slice(0, 180)}`);
+    }
+    output.push('');
+  }
+
   // Render previously section (prior assistant message)
   const priorMessages = getPriorSessionMessages(observations, config, sessionId, cwd);
   output.push(...renderPreviouslySection(priorMessages, useColors));
@@ -129,10 +141,11 @@ export async function generateContext(
 ): Promise<string> {
   const config = loadContextConfig();
   const cwd = input?.cwd ?? process.cwd();
-  const project = getProjectName(cwd);
+  const projectContext = getProjectContext(cwd);
+  const project = projectContext.canonical;
 
   // Use provided projects array (for worktree support) or fall back to single project
-  const projects = input?.projects || [project];
+  const projects = input?.projects || projectContext.allProjects;
 
   // Full mode: fetch all observations but keep normal rendering (level 1 summaries)
   if (input?.full) {
@@ -147,6 +160,9 @@ export async function generateContext(
   }
 
   try {
+    const brainEngine = createBrainEngine(db.db);
+    await brainEngine.initialize();
+
     // Query data for all projects (supports worktree: parent + worktree combined)
     const observations = projects.length > 1
       ? queryObservationsMulti(db, projects, config)
@@ -154,9 +170,23 @@ export async function generateContext(
     const summaries = projects.length > 1
       ? querySummariesMulti(db, projects, config)
       : querySummaries(db, project, config);
+    const longTermMemories = await brainEngine.retrieveMemories(
+      '',
+      {
+        projects,
+        tiers: [MemoryTier.Semantic, MemoryTier.Procedural, MemoryTier.Episodic],
+      },
+      8,
+    ).then((results) =>
+      results.map((result) => ({
+        tier: result.cmu.tier,
+        title: result.cmu.content.title,
+        narrative: result.cmu.content.narrative,
+      })),
+    );
 
     // Handle empty state
-    if (observations.length === 0 && summaries.length === 0) {
+    if (observations.length === 0 && summaries.length === 0 && longTermMemories.length === 0) {
       return renderEmptyState(project, useColors);
     }
 
@@ -165,6 +195,7 @@ export async function generateContext(
       project,
       observations,
       summaries,
+      longTermMemories,
       config,
       cwd,
       input?.session_id,
