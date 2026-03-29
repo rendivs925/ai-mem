@@ -603,8 +603,8 @@ export class MigrationRunner {
 
   /**
    * Repair session ID column renames (migration 19)
-   * DEPRECATED: Migration 17 is now fully idempotent and handles all cases.
-   * This migration is kept for backwards compatibility but does nothing.
+   * Migration 17 now covers the rename cases idempotently.
+   * This step remains only to mark older databases as fully migrated.
    */
   private repairSessionIdColumnRename(): void {
     const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(19) as SchemaVersion | undefined;

@@ -10,8 +10,8 @@ The Worker Service is an Express HTTP server that handles all claude-mem operati
 Hook (plugin/scripts/*-hook.js)
   → HTTP Request to Worker (localhost:37777)
     → Route Handler (http/routes/*.ts)
-      → MCP Server Tool (for search) OR Service Layer (for session/data)
-        → Database (SQLite3 + Chroma vector DB)
+    → Service Layer / Brain Memory Engine
+        → Database (SQLite)
 ```
 
 ## Directory Structure
@@ -46,16 +46,14 @@ src/services/worker/
 - `GET /stream` - SSE stream for real-time updates
 
 ### SessionRoutes.ts
-Session lifecycle operations (use service layer directly):
-- `POST /sessions/init` - Initialize new session
-- `POST /sessions/:sessionId/observations` - Add tool usage observations
-- `POST /sessions/:sessionId/summarize` - Trigger session summary
-- `GET /sessions/:sessionId/status` - Get session status
-- `DELETE /sessions/:sessionId` - Delete session
-- `POST /sessions/:sessionId/complete` - Mark session complete
-- `POST /sessions/claude-id/:claudeId/observations` - Add observations by claude_id
-- `POST /sessions/claude-id/:claudeId/summarize` - Summarize by claude_id
-- `POST /sessions/claude-id/:claudeId/complete` - Complete by claude_id
+Session lifecycle operations:
+- `POST /api/sessions/init` - Initialize or resume a session by `contentSessionId`
+- `POST /api/sessions/:sessionId/init` - Start the agent/generator for a DB session
+- `POST /api/sessions/observations` - Add tool usage observations
+- `POST /api/sessions/summarize` - Trigger session summary
+- `POST /api/sessions/complete` - Mark session complete
+- `GET /api/sessions/:sessionId/status` - Get session status
+- `DELETE /api/sessions/:sessionId` - Delete session
 
 ### DataRoutes.ts
 Data retrieval operations (use service layer directly):
@@ -71,24 +69,18 @@ Data retrieval operations (use service layer directly):
 - `POST /processing` - Set processing status
 
 ### SearchRoutes.ts
-All search operations (proxy to MCP server):
-- `GET /search` - Unified search (observations + sessions + prompts)
-- `GET /timeline` - Unified timeline context
-- `GET /decisions` - Decision-type observations
-- `GET /changes` - Change-related observations
-- `GET /how-it-works` - How-it-works explanations
-- `GET /search/observations` - Search observations
-- `GET /search/sessions` - Search sessions
-- `GET /search/prompts` - Search prompts
-- `GET /search/by-concept` - Find by concept tag
-- `GET /search/by-file` - Find by file path
-- `GET /search/by-type` - Find by observation type
-- `GET /search/recent-context` - Get recent context
-- `GET /search/context-timeline` - Get context timeline
-- `GET /context/preview` - Preview context
-- `GET /context/inject` - Inject context
-- `GET /search/timeline-by-query` - Timeline by search query
-- `GET /search/help` - Search help
+Search and context operations:
+- `GET /api/search` - Unified search
+- `GET /api/timeline` - Unified timeline context
+- `GET /api/decisions` - Decision memories
+- `GET /api/changes` - Change memories
+- `GET /api/how-it-works` - Architecture/procedural memories
+- `GET /api/context/recent` - Get recent context
+- `GET /api/context/timeline` - Get context timeline
+- `GET /api/context/preview` - Preview context
+- `GET /api/context/inject` - Inject context
+- `GET /api/timeline/by-query` - Timeline by search query
+- `GET /api/search/help` - Search help
 
 ### SettingsRoutes.ts
 Settings and configuration (use service layer directly):
@@ -100,26 +92,10 @@ Settings and configuration (use service layer directly):
 - `POST /branch/switch` - Switch git branch
 - `POST /branch/update` - Pull branch updates
 
-## Current State (Phase 1)
+## Current State
 
-**Phase 1** is a pure code reorganization with ZERO functional changes:
-- Extract route handlers from WorkerService.ts monolith
-- Organize into logical route classes
-- Keep all existing behavior identical
-
-**MCP vs Direct DB Split** (inherited, not changed in Phase 1):
-- Search operations → MCP server (mem-search)
-- Session/data operations → Direct DB access via service layer
-
-## Future Phase 2
-
-Phase 2 will unify the architecture:
-1. Expand MCP server to handle ALL operations (not just search)
-2. Convert all route handlers to proxy through MCP
-3. Move database logic from service layer into MCP tools
-4. Result: Worker becomes pure HTTP → MCP proxy for maximum portability
-
-This separation allows the worker to be deployed anywhere (as a CLI tool, cloud service, etc.) without carrying database dependencies.
+The worker uses SQLite-backed brain memory as the primary memory system.
+Session routes orchestrate ingestion and agent lifecycle, while search/context routes read from the shared memory store.
 
 ## Adding New Endpoints
 

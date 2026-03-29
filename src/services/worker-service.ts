@@ -61,7 +61,7 @@ function clearWorkerSpawnAttempted(): void {
   }
 }
 
-// Re-export for backward compatibility — canonical implementation in shared/plugin-state.ts
+// Re-export the plugin-state helper from the worker entrypoint.
 export { isPluginDisabledInClaudeSettings } from '../shared/plugin-state.js';
 import { isPluginDisabledInClaudeSettings } from '../shared/plugin-state.js';
 

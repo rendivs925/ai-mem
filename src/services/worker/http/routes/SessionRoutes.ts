@@ -339,15 +339,9 @@ export class SessionRoutes extends BaseRouteHandler {
   }
 
   setupRoutes(app: express.Application): void {
-    // Legacy session endpoints (use sessionDbId)
-    app.post('/sessions/:sessionDbId/init', this.handleSessionInit.bind(this));
-    app.post('/sessions/:sessionDbId/observations', this.handleObservations.bind(this));
-    app.post('/sessions/:sessionDbId/summarize', this.handleSummarize.bind(this));
-    app.get('/sessions/:sessionDbId/status', this.handleSessionStatus.bind(this));
-    app.delete('/sessions/:sessionDbId', this.handleSessionDelete.bind(this));
-    app.post('/sessions/:sessionDbId/complete', this.handleSessionComplete.bind(this));
-
-    // New session endpoints (use contentSessionId)
+    app.post('/api/sessions/:sessionDbId/init', this.handleSessionInit.bind(this));
+    app.get('/api/sessions/:sessionDbId/status', this.handleSessionStatus.bind(this));
+    app.delete('/api/sessions/:sessionDbId', this.handleSessionDelete.bind(this));
     app.post('/api/sessions/init', this.handleSessionInitByClaudeId.bind(this));
     app.post('/api/sessions/observations', this.handleObservationsByClaudeId.bind(this));
     app.post('/api/sessions/summarize', this.handleSummarizeByClaudeId.bind(this));
@@ -422,54 +416,6 @@ export class SessionRoutes extends BaseRouteHandler {
   });
 
   /**
-   * Queue observations for processing
-   * CRITICAL: Ensures SDK agent is running to process the queue (ALWAYS SAVE EVERYTHING)
-   */
-  private handleObservations = this.wrapHandler((req: Request, res: Response): void => {
-    const sessionDbId = this.parseIntParam(req, res, 'sessionDbId');
-    if (sessionDbId === null) return;
-
-    const { tool_name, tool_input, tool_response, prompt_number, cwd } = req.body;
-
-    this.sessionManager.queueObservation(sessionDbId, {
-      tool_name,
-      tool_input,
-      tool_response,
-      prompt_number,
-      cwd
-    });
-
-    // CRITICAL: Ensure SDK agent is running to consume the queue
-    this.ensureGeneratorRunning(sessionDbId, 'observation');
-
-    // Broadcast observation queued event
-    this.eventBroadcaster.broadcastObservationQueued(sessionDbId);
-
-    res.json({ status: 'queued' });
-  });
-
-  /**
-   * Queue summarize request
-   * CRITICAL: Ensures SDK agent is running to process the queue (ALWAYS SAVE EVERYTHING)
-   */
-  private handleSummarize = this.wrapHandler((req: Request, res: Response): void => {
-    const sessionDbId = this.parseIntParam(req, res, 'sessionDbId');
-    if (sessionDbId === null) return;
-
-    const { last_assistant_message } = req.body;
-
-    this.sessionManager.queueSummarize(sessionDbId, last_assistant_message);
-
-    // CRITICAL: Ensure SDK agent is running to consume the queue
-    this.ensureGeneratorRunning(sessionDbId, 'summarize');
-
-    // Broadcast summarize queued event
-    this.eventBroadcaster.broadcastSummarizeQueued();
-
-    res.json({ status: 'queued' });
-  });
-
-  /**
    * Get session status
    */
   private handleSessionStatus = this.wrapHandler((req: Request, res: Response): void => {
@@ -506,19 +452,6 @@ export class SessionRoutes extends BaseRouteHandler {
     await this.completionHandler.completeByDbId(sessionDbId);
 
     res.json({ status: 'deleted' });
-  });
-
-  /**
-   * Complete a session (backward compatibility for cleanup-hook)
-   * cleanup-hook expects POST /sessions/:sessionDbId/complete instead of DELETE
-   */
-  private handleSessionComplete = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
-    const sessionDbId = this.parseIntParam(req, res, 'sessionDbId');
-    if (sessionDbId === null) return;
-
-    await this.completionHandler.completeByDbId(sessionDbId);
-
-    res.json({ success: true });
   });
 
   /**

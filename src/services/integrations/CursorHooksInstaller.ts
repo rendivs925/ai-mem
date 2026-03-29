@@ -17,6 +17,7 @@ import { promisify } from 'util';
 import { logger } from '../../utils/logger.js';
 import { getWorkerPort, workerHttpRequest } from '../../shared/worker-utils.js';
 import { DATA_DIR, MARKETPLACE_ROOT, CLAUDE_CONFIG_DIR } from '../../shared/paths.js';
+import { getProjectContext } from '../../utils/project-name.js';
 import {
   readCursorRegistry as readCursorRegistryFromFile,
   writeCursorRegistry as writeCursorRegistryToFile,
@@ -104,7 +105,7 @@ export async function updateCursorContextForProject(projectName: string, _port: 
   try {
     // Fetch fresh context from worker (uses socket or TCP automatically)
     const response = await workerHttpRequest(
-      `/api/context/inject?project=${encodeURIComponent(projectName)}`
+      `/api/context/inject?projects=${encodeURIComponent(projectName)}`
     );
 
     if (!response.ok) return;
@@ -398,7 +399,7 @@ async function setupProjectContext(targetDir: string, workspaceRoot: string): Pr
   const rulesDir = path.join(targetDir, 'rules');
   mkdirSync(rulesDir, { recursive: true });
 
-  const projectName = path.basename(workspaceRoot);
+  const projectName = getProjectContext(workspaceRoot).canonical;
   let contextGenerated = false;
 
   console.log(`  Generating initial context...`);
@@ -409,7 +410,7 @@ async function setupProjectContext(targetDir: string, workspaceRoot: string): Pr
     if (healthResponse.ok) {
       // Fetch context
       const contextResponse = await workerHttpRequest(
-        `/api/context/inject?project=${encodeURIComponent(projectName)}`
+        `/api/context/inject?projects=${encodeURIComponent(projectName)}`
       );
       if (contextResponse.ok) {
         const context = await contextResponse.text();

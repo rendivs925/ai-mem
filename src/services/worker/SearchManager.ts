@@ -1,16 +1,7 @@
 /**
  * SearchManager - Core search orchestration for claude-mem
  *
- * This class is a thin wrapper that delegates to the modular search infrastructure.
- * It maintains the same public interface for backward compatibility.
- *
- * The actual search logic is now in:
- * - SearchOrchestrator: Strategy selection and coordination
- * - ChromaSearchStrategy: Vector-based semantic search
- * - SQLiteSearchStrategy: Filter-only queries
- * - HybridSearchStrategy: Metadata filtering + semantic ranking
- * - ResultFormatter: Output formatting
- * - TimelineBuilder: Timeline construction
+ * Coordinates search, timeline, and brain-memory retrieval for the worker API.
  */
 
 import { SessionSearch } from '../sqlite/SessionSearch.js';

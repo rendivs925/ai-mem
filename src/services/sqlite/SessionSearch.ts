@@ -36,22 +36,10 @@ export class SessionSearch {
   }
 
   /**
-   * Ensure FTS5 tables exist (backward compatibility only - no longer used for search)
+   * Ensure FTS5 tables exist for local structured querying.
    *
-   * FTS5 tables are maintained for backward compatibility but not used for search.
-   * Vector search (Chroma) is now the primary search mechanism.
-   *
-   * Retention Rationale:
-   * - Prevents breaking existing installations with FTS5 tables
-   * - Allows graceful migration path for users
-   * - Tables maintained but search paths removed
-   * - Triggers still fire to keep tables synchronized
-   *
-   * FTS5 may be unavailable on some platforms (e.g., Bun on Windows #791).
-   * When unavailable, we skip FTS table creation — search falls back to
-   * ChromaDB (vector) and LIKE queries (structured filters) which are unaffected.
-   *
-   * TODO: Remove FTS5 infrastructure in future major version (v7.0.0)
+   * FTS5 may be unavailable on some platforms (for example Bun on Windows).
+   * When unavailable, search continues with non-FTS filter paths.
    */
   private ensureFTSTables(): void {
     // Check if FTS tables already exist

@@ -419,7 +419,7 @@ export async function updateFolderClaudeMdFiles(
     try {
       // Fetch timeline via existing API (uses socket or TCP automatically)
       const response = await workerHttpRequest(
-        `/api/search/by-file?filePath=${encodeURIComponent(folderPath)}&limit=${limit}&project=${encodeURIComponent(project)}&isFolder=true`
+        `/api/search?type=observations&filePath=${encodeURIComponent(folderPath)}&limit=${limit}&project=${encodeURIComponent(project)}&isFolder=true`
       );
 
       if (!response.ok) {
