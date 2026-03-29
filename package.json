@@ -1,7 +1,7 @@
 {
-  "name": "claude-mem",
-  "version": "10.6.2",
-  "description": "Memory compression system for Claude Code - persist context across sessions",
+  "name": "ai-mem",
+  "version": "0.1.0",
+  "description": "Brain-inspired persistent memory for AI agents - ACT-R activation, spreading activation, consolidation",
   "keywords": [
     "claude",
     "claude-code",
@@ -98,6 +98,8 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.76",
     "@modelcontextprotocol/sdk": "^1.25.1",
+    "@opencode-ai/plugin": "^1.0.0",
+    "@qdrant/js-client-rest": "^1.9.0",
     "ansi-to-html": "^0.7.2",
     "dompurify": "^3.3.1",
     "express": "^4.18.2",
