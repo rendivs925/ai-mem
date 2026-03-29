@@ -1,11 +1,11 @@
 // Sleep Consolidation Cycle
 // Based on research: Sleep cycle for memory linking and pruning
 
-import type { CMU } from "../../../../types/brain/memory";
+import type { CMU } from "../../../types/brain/memory";
 import { MemoryGraph } from "../graph";
 import { findDuplicates } from "./dedupe";
 import { pruneByImportance, pruneByAge } from "./cull";
-import { PruningError } from "../../../../types/brain/error";
+import { PruningError } from "../../../types/brain/error";
 
 export interface ConsolidationResult {
   merged: number;
