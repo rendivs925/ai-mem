@@ -292,7 +292,7 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
           .join("\n\n");
 
         output.parts.push({
-          id: crypto.randomUUID(),
+          id: `prt_${crypto.randomUUID().replaceAll("-", "")}`,
           sessionID: output.message.sessionID,
           messageID: output.message.id,
           type: "text",
