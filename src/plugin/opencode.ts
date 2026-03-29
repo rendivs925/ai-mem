@@ -94,6 +94,36 @@ function summarizeTitle(text: string, fallback: string): string {
   return (line || fallback).slice(0, 80);
 }
 
+async function captureCommandMemory(
+  engine: BrainEngine,
+  pluginInput: PluginInput,
+  sessionID: string,
+  name: string,
+  argumentsText: string,
+): Promise<void> {
+  if (name.startsWith("mem-")) return;
+
+  const combined = `${name} ${argumentsText}`.trim();
+  await engine.captureMemory(
+    sessionID,
+    projectName(pluginInput),
+    {
+      title: `Procedure: /${name}`,
+      narrative: combined.slice(0, 2000),
+      facts: argumentsText ? [argumentsText.slice(0, 300)] : [],
+      concepts: [name, ...extractConcepts(combined)].slice(0, 12),
+      filesRead: [],
+      filesModified: [],
+    },
+    "change",
+    0.7,
+  );
+}
+
+async function maybeConsolidate(engine: BrainEngine): Promise<void> {
+  await engine.consolidate();
+}
+
 async function captureUserPromptMemory(
   engine: BrainEngine,
   pluginInput: PluginInput,
@@ -404,6 +434,40 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
       );
 
       output.context.push(`Relevant ai-mem memories:\n\n${lines.join("\n\n---\n\n")}`);
+    },
+
+    "experimental.chat.system.transform": async (_input, output) => {
+      const results = await engine.retrieveMemories("", {
+        tiers: ["semantic", "procedural"] as never,
+      }, 8);
+
+      if (results.length === 0) return;
+
+      output.system.push(
+        [
+          "Long-term memory context:",
+          ...results.map((result) =>
+            `- [${result.cmu.tier}] ${result.cmu.content.title}: ${result.cmu.content.narrative.slice(0, 200)}`,
+          ),
+        ].join("\n"),
+      );
+    },
+
+    event: async ({ event }) => {
+      if (event.type === "command.executed") {
+        await captureCommandMemory(
+          engine,
+          pluginInput,
+          event.properties.sessionID,
+          event.properties.name,
+          event.properties.arguments,
+        );
+        return;
+      }
+
+      if (event.type === "session.idle" || event.type === "session.compacted") {
+        await maybeConsolidate(engine);
+      }
     },
   };
 };
