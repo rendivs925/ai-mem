@@ -35,6 +35,14 @@
       "types": "./dist/sdk/index.d.ts",
       "import": "./dist/sdk/index.js"
     },
+    "./plugin/opencode": {
+      "types": "./src/plugin/opencode.ts",
+      "import": "./src/plugin/opencode.ts"
+    },
+    "./brain": {
+      "types": "./src/engine/brain/engine.ts",
+      "import": "./src/engine/brain/engine.ts"
+    },
     "./modes/*": "./plugin/modes/*"
   },
   "files": [
