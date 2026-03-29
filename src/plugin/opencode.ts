@@ -153,6 +153,17 @@ async function executeMemoryCommand(engine: BrainEngine, command: string, argume
   return undefined;
 }
 
+function formatStatsOutput(stats: Awaited<ReturnType<BrainEngine["getStats"]>>): string {
+  return [
+    "Memory Statistics",
+    `Total memories: ${stats.total}`,
+    `Average activation: ${stats.avgActivation.toFixed(2)}`,
+    "",
+    "By tier:",
+    ...Object.entries(stats.byTier).map(([tier, count]) => `- ${tier}: ${count}`),
+  ].join("\n");
+}
+
 export const AiMemPlugin: Plugin = async (input: PluginInput) => {
   const engine = await getEngine(input);
 
@@ -185,18 +196,21 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
             args.limit || 50
           );
 
-          return {
-            results: results.map((r) => ({
-              id: r.cmu.id,
-              title: r.cmu.content.title,
-              narrative: r.cmu.content.narrative,
-              tier: r.cmu.tier,
-              importance: r.cmu.metadata.importance,
-              activation: r.activation,
-              source: r.source,
-            })),
-            total: results.length,
-          };
+          if (results.length === 0) {
+            return "No memories found";
+          }
+
+          return results
+            .map((r) =>
+              [
+                `[${r.cmu.tier}] ${r.cmu.content.title}`,
+                `ID: ${r.cmu.id}`,
+                `Importance: ${r.cmu.metadata.importance.toFixed(2)}`,
+                `Activation: ${r.activation.toFixed(2)}`,
+                r.cmu.content.narrative,
+              ].join("\n"),
+            )
+            .join("\n\n---\n\n");
         },
       }),
 
@@ -208,20 +222,16 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
         async execute(args) {
           const memory = await engine.getMemoryById(args.memoryId);
           if (!memory) {
-            return { success: false, message: "Memory not found" };
+            return "Memory not found";
           }
 
           await engine.recordAccess(args.memoryId);
-          return {
-            success: true,
-            memory: {
-              id: memory.id,
-              title: memory.content.title,
-              narrative: memory.content.narrative,
-              tier: memory.tier,
-              importance: memory.metadata.importance,
-            },
-          };
+          return [
+            `[${memory.tier}] ${memory.content.title}`,
+            `ID: ${memory.id}`,
+            `Importance: ${memory.metadata.importance.toFixed(2)}`,
+            memory.content.narrative,
+          ].join("\n");
         },
       }),
 
@@ -230,7 +240,7 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
         args: {},
         async execute() {
           const stats = await engine.getStats();
-          return stats;
+          return formatStatsOutput(stats);
         },
       }),
 
@@ -239,12 +249,12 @@ export const AiMemPlugin: Plugin = async (input: PluginInput) => {
         args: {},
         async execute() {
           const result = await engine.consolidate();
-          return {
-            success: true,
-            merged: result.merged,
-            pruned: result.pruned,
-            linked: result.linked,
-          };
+          return [
+            "Consolidation complete",
+            `Merged: ${result.merged}`,
+            `Pruned: ${result.pruned}`,
+            `Linked: ${result.linked}`,
+          ].join("\n");
         },
       }),
     },
