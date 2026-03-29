@@ -72,7 +72,11 @@ function isValidProvider(value: string): value is "none" | "qdrant" | "chroma" {
 }
 
 export function parseBrainSettings(input: unknown): BrainSettings {
-  if (!input || typeof input !== "object") {
+  if (input === undefined || input === null) {
+    return defaultBrainSettings;
+  }
+
+  if (typeof input !== "object") {
     console.warn("Invalid brain settings, using defaults");
     return defaultBrainSettings;
   }

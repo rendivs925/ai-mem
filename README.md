@@ -27,9 +27,13 @@ Or add to `~/.config/opencode/opencode.json` manually:
 
 ```json
 {
-  "plugin": ["ai-mem"]
+  "plugin": [
+    "file:///absolute/path/to/ai-mem/src/plugin/opencode.ts"
+  ]
 }
 ```
+
+`make setup-opencode` writes the correct absolute `file://` plugin entry automatically.
 
 ### Claude Code
 
