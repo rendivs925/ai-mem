@@ -89,6 +89,10 @@ export class LogsRoutes extends BaseRouteHandler {
     const dataDir = SettingsDefaultsManager.get('AI_MEM_DATA_DIR');
     const logsDir = join(dataDir, 'logs');
     const date = new Date().toISOString().split('T')[0];
+    const canonicalPath = join(logsDir, `ai-mem-${date}.log`);
+    if (existsSync(canonicalPath)) {
+      return canonicalPath;
+    }
     return join(logsDir, `claude-mem-${date}.log`);
   }
 

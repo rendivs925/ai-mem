@@ -448,7 +448,7 @@ export class OpenRouterAgent {
 
     // Optional analytics headers
     const siteUrl = settings.AI_MEM_OPENROUTER_SITE_URL || '';
-    const appName = settings.AI_MEM_OPENROUTER_APP_NAME || 'claude-mem';
+    const appName = settings.AI_MEM_OPENROUTER_APP_NAME || 'ai-mem';
 
     return { apiKey, model, siteUrl, appName };
   }

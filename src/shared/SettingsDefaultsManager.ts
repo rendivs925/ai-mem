@@ -85,7 +85,7 @@ export class SettingsDefaultsManager {
     AI_MEM_OPENROUTER_API_KEY: '',  // Empty by default, can be set via UI or env
     AI_MEM_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default OpenRouter model (free tier)
     AI_MEM_OPENROUTER_SITE_URL: '',  // Optional: for OpenRouter analytics
-    AI_MEM_OPENROUTER_APP_NAME: 'claude-mem',  // App name for OpenRouter analytics
+    AI_MEM_OPENROUTER_APP_NAME: 'ai-mem',  // App name for OpenRouter analytics
     AI_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES: '20',  // Max messages in context window
     AI_MEM_OPENROUTER_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
     // System Configuration

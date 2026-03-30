@@ -1,5 +1,5 @@
 /**
- * Default settings values for Claude Memory
+ * Default settings values for ai-mem
  * Shared across UI components and hooks
  */
 export const DEFAULT_SETTINGS = {
@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS = {
   AI_MEM_OPENROUTER_API_KEY: '',
   AI_MEM_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',
   AI_MEM_OPENROUTER_SITE_URL: '',
-  AI_MEM_OPENROUTER_APP_NAME: 'claude-mem',
+  AI_MEM_OPENROUTER_APP_NAME: 'ai-mem',
   AI_MEM_GEMINI_RATE_LIMITING_ENABLED: 'true',
 
   // Token Economics — match SettingsDefaultsManager defaults (off by default to keep context lean)
