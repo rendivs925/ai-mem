@@ -47,6 +47,51 @@ describe("OpenCode brain integration regressions", () => {
     expect(results[0]?.cmu.content.title).toBe("Alpha memory");
   });
 
+  it("reports committed and evidence counts in memory stats", async () => {
+    const db = new AiMemDatabase(":memory:");
+    databases.push(db);
+
+    const engine = createBrainEngine(db.db);
+    await engine.initialize();
+
+    await engine.captureMemory(
+      "session-stats-1",
+      "project-a",
+      {
+        title: "Tool: read",
+        narrative: "read src/parser.ts",
+        facts: [],
+        concepts: ["parser"],
+        filesRead: ["src/parser.ts"],
+        filesModified: [],
+      },
+      "discovery",
+      0.5,
+    );
+
+    await engine.captureMemory(
+      "session-stats-2",
+      "project-a",
+      {
+        title: "Parser architecture",
+        narrative: "Parser uses a builder phase for node creation.",
+        facts: ["builder phase"],
+        concepts: ["parser", "builder", "architecture"],
+        filesRead: ["src/parser.ts"],
+        filesModified: [],
+      },
+      "decision",
+      0.82,
+    );
+
+    const stats = await engine.getStats();
+
+    expect(stats.total).toBe(2);
+    expect(stats.committed).toBeGreaterThanOrEqual(1);
+    expect(stats.evidence).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(stats.topSignals)).toBe(true);
+  });
+
   it("matches any supplied keyword instead of requiring one combined pattern", async () => {
     const db = new AiMemDatabase(":memory:");
     databases.push(db);

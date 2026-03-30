@@ -300,13 +300,21 @@ async function executeMemoryCommand(
 }
 
 function formatStatsOutput(stats: Awaited<ReturnType<BrainEngine["getStats"]>>): string {
+  const qualityRatio = stats.total > 0 ? ((stats.committed / stats.total) * 100).toFixed(1) : "0.0";
+  const evidenceRatio = stats.total > 0 ? ((stats.evidence / stats.total) * 100).toFixed(1) : "0.0";
   return [
     "Memory Statistics",
     `Total memories: ${stats.total}`,
     `Average activation: ${stats.avgActivation.toFixed(2)}`,
+    `Committed memory: ${stats.committed} (${qualityRatio}%)`,
+    `Sensory evidence: ${stats.evidence} (${evidenceRatio}%)`,
+    `Distilled memories: ${stats.distilled}`,
     "",
     "By tier:",
     ...Object.entries(stats.byTier).map(([tier, count]) => `- ${tier}: ${count}`),
+    "",
+    "Top signals:",
+    ...(stats.topSignals.length > 0 ? stats.topSignals.map((signal) => `- ${signal}`) : ["- none"]),
   ].join("\n");
 }
 

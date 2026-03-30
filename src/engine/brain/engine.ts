@@ -275,6 +275,10 @@ export class BrainEngine {
     total: number;
     byTier: Record<MemoryTier, number>;
     avgActivation: number;
+    committed: number;
+    evidence: number;
+    distilled: number;
+    topSignals: string[];
   }> {
     await this.ensureFreshGraph();
     const memories = await this.storage.getAllMemories();
@@ -288,16 +292,34 @@ export class BrainEngine {
     };
 
     let totalActivation = 0;
+    let committed = 0;
+    let evidence = 0;
+    let distilled = 0;
+    const signalCounts = new Map<string, number>();
 
     for (const memory of memories) {
       byTier[memory.tier] = (byTier[memory.tier] || 0) + 1;
       totalActivation += memory.metadata.baseActivation;
+      if (memory.tier === Tier.Semantic || memory.tier === Tier.Procedural) committed++;
+      if (memory.tier === Tier.Sensory) evidence++;
+      if (memory.content.title.startsWith("Knowledge:") || memory.content.title.startsWith("Workflow:")) distilled++;
+
+      for (const concept of memory.content.concepts.filter((item) => !item.startsWith("source:"))) {
+        signalCounts.set(concept, (signalCounts.get(concept) ?? 0) + 1);
+      }
     }
 
     return {
       total: memories.length,
       byTier,
       avgActivation: memories.length > 0 ? totalActivation / memories.length : 0,
+      committed,
+      evidence,
+      distilled,
+      topSignals: Array.from(signalCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([signal]) => signal),
     };
   }
 
