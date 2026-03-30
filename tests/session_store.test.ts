@@ -118,4 +118,94 @@ describe('SessionStore', () => {
     expect(stored).not.toBeNull();
     expect(stored?.created_at_epoch).toBe(pastTimestamp);
   });
+
+  it('should support observation CRUD', () => {
+    const contentId = 'claude-crud-obs';
+    const memoryId = 'memory-crud-obs';
+    const sessionId = store.createSDKSession(contentId, 'test-project', 'initial prompt');
+    store.updateMemorySessionId(sessionId, memoryId);
+
+    const created = store.storeObservation(
+      memoryId,
+      'test-project',
+      {
+        type: 'discovery',
+        title: 'Initial title',
+        subtitle: null,
+        facts: ['fact-a'],
+        narrative: 'Initial narrative',
+        concepts: ['crud'],
+        files_read: ['a.ts'],
+        files_modified: [],
+      }
+    );
+
+    expect(store.updateObservation(created.id, {
+      title: 'Updated title',
+      narrative: 'Updated narrative',
+      facts: ['fact-b'],
+      files_modified: ['b.ts'],
+    })).toBe(true);
+
+    const updated = store.getObservationById(created.id);
+    expect(updated?.title).toBe('Updated title');
+    expect((updated as any)?.narrative).toBe('Updated narrative');
+    expect((updated as any)?.facts).toContain('fact-b');
+    expect((updated as any)?.files_modified).toContain('b.ts');
+
+    expect(store.deleteObservation(created.id)).toBe(true);
+    expect(store.getObservationById(created.id)).toBeNull();
+  });
+
+  it('should support summary CRUD', () => {
+    const contentId = 'claude-crud-summary';
+    const memoryId = 'memory-crud-summary';
+    const sessionId = store.createSDKSession(contentId, 'test-project', 'initial prompt');
+    store.updateMemorySessionId(sessionId, memoryId);
+
+    const created = store.storeSummary(
+      memoryId,
+      'test-project',
+      {
+        request: 'Initial request',
+        investigated: 'Initial investigation',
+        learned: 'Initial lesson',
+        completed: 'Initial completion',
+        next_steps: 'Initial next step',
+        notes: 'Initial notes',
+      }
+    );
+
+    expect(store.updateSessionSummary(created.id, {
+      learned: 'Updated lesson',
+      completed: 'Updated completion',
+      notes: 'Updated notes',
+    })).toBe(true);
+
+    const updated = store.getStoredSessionSummaryById(created.id);
+    expect(updated?.learned).toBe('Updated lesson');
+    expect(updated?.completed).toBe('Updated completion');
+    expect((updated as any)?.notes).toBe('Updated notes');
+
+    expect(store.deleteSessionSummary(created.id)).toBe(true);
+    expect(store.getStoredSessionSummaryById(created.id)).toBeNull();
+  });
+
+  it('should support prompt CRUD', () => {
+    const contentId = 'claude-crud-prompt';
+    store.createSDKSession(contentId, 'test-project', 'initial prompt');
+
+    const promptId = store.saveUserPrompt(contentId, 1, 'Original prompt');
+    expect(store.updateUserPrompt(promptId, {
+      prompt_number: 2,
+      prompt_text: 'Updated prompt',
+    })).toBe(true);
+
+    const updated = store.getUserPromptsByIds([promptId])[0];
+    expect(updated.prompt_number).toBe(2);
+    expect(updated.prompt_text).toBe('Updated prompt');
+
+    expect(store.deleteUserPrompt(promptId)).toBe(true);
+    expect(store.getUserPromptsByIds([promptId])).toHaveLength(0);
+  });
 });

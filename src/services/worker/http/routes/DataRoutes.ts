@@ -37,13 +37,23 @@ export class DataRoutes extends BaseRouteHandler {
     app.get('/api/observations', this.handleGetObservations.bind(this));
     app.get('/api/summaries', this.handleGetSummaries.bind(this));
     app.get('/api/prompts', this.handleGetPrompts.bind(this));
+    app.post('/api/observations', this.handleCreateObservation.bind(this));
+    app.post('/api/summaries', this.handleCreateSummary.bind(this));
+    app.post('/api/prompts', this.handleCreatePrompt.bind(this));
 
     // Fetch by ID endpoints
     app.get('/api/observation/:id', this.handleGetObservationById.bind(this));
     app.post('/api/observations/batch', this.handleGetObservationsByIds.bind(this));
+    app.patch('/api/observation/:id', this.handleUpdateObservation.bind(this));
+    app.delete('/api/observation/:id', this.handleDeleteObservation.bind(this));
     app.get('/api/session/:id', this.handleGetSessionById.bind(this));
+    app.get('/api/summary/:id', this.handleGetSummaryById.bind(this));
+    app.patch('/api/summary/:id', this.handleUpdateSummary.bind(this));
+    app.delete('/api/summary/:id', this.handleDeleteSummary.bind(this));
     app.post('/api/sdk-sessions/batch', this.handleGetSdkSessionsByIds.bind(this));
     app.get('/api/prompt/:id', this.handleGetPromptById.bind(this));
+    app.patch('/api/prompt/:id', this.handleUpdatePrompt.bind(this));
+    app.delete('/api/prompt/:id', this.handleDeletePrompt.bind(this));
 
     // Metadata endpoints
     app.get('/api/stats', this.handleGetStats.bind(this));
@@ -90,6 +100,144 @@ export class DataRoutes extends BaseRouteHandler {
     res.json(result);
   });
 
+  private handleCreateObservation = this.wrapHandler((req: Request, res: Response): void => {
+    const {
+      memory_session_id,
+      memorySessionId,
+      project,
+      type,
+      title,
+      subtitle,
+      facts,
+      narrative,
+      concepts,
+      files_read,
+      filesRead,
+      files_modified,
+      filesModified,
+      prompt_number,
+      promptNumber,
+      discovery_tokens,
+      discoveryTokens,
+    } = req.body;
+
+    const targetMemorySessionId = memory_session_id ?? memorySessionId;
+    if (!targetMemorySessionId || typeof targetMemorySessionId !== 'string') {
+      this.badRequest(res, 'memory_session_id is required');
+      return;
+    }
+    if (!project || typeof project !== 'string') {
+      this.badRequest(res, 'project is required');
+      return;
+    }
+    if (!type || typeof type !== 'string') {
+      this.badRequest(res, 'type is required');
+      return;
+    }
+
+    const store = this.dbManager.getSessionStore();
+    const result = store.storeObservation(
+      targetMemorySessionId,
+      project,
+      {
+        type,
+        title: title ?? null,
+        subtitle: subtitle ?? null,
+        facts: Array.isArray(facts) ? facts : [],
+        narrative: narrative ?? null,
+        concepts: Array.isArray(concepts) ? concepts : [],
+        files_read: Array.isArray(files_read ?? filesRead) ? (files_read ?? filesRead) : [],
+        files_modified: Array.isArray(files_modified ?? filesModified) ? (files_modified ?? filesModified) : [],
+      },
+      prompt_number ?? promptNumber,
+      discovery_tokens ?? discoveryTokens ?? 0,
+    );
+
+    const observation = store.getObservationById(result.id);
+    res.status(201).json(observation);
+  });
+
+  private handleCreateSummary = this.wrapHandler((req: Request, res: Response): void => {
+    const {
+      memory_session_id,
+      memorySessionId,
+      project,
+      request,
+      investigated,
+      learned,
+      completed,
+      next_steps,
+      nextSteps,
+      notes,
+      prompt_number,
+      promptNumber,
+      discovery_tokens,
+      discoveryTokens,
+    } = req.body;
+
+    const targetMemorySessionId = memory_session_id ?? memorySessionId;
+    if (!targetMemorySessionId || typeof targetMemorySessionId !== 'string') {
+      this.badRequest(res, 'memory_session_id is required');
+      return;
+    }
+    if (!project || typeof project !== 'string') {
+      this.badRequest(res, 'project is required');
+      return;
+    }
+
+    const store = this.dbManager.getSessionStore();
+    const result = store.storeSummary(
+      targetMemorySessionId,
+      project,
+      {
+        request: request ?? '',
+        investigated: investigated ?? '',
+        learned: learned ?? '',
+        completed: completed ?? '',
+        next_steps: next_steps ?? nextSteps ?? '',
+        notes: notes ?? null,
+      },
+      prompt_number ?? promptNumber,
+      discovery_tokens ?? discoveryTokens ?? 0,
+    );
+
+    const summary = store.getStoredSessionSummaryById(result.id);
+    res.status(201).json(summary);
+  });
+
+  private handleCreatePrompt = this.wrapHandler((req: Request, res: Response): void => {
+    const {
+      content_session_id,
+      contentSessionId,
+      prompt_number,
+      promptNumber,
+      prompt_text,
+      promptText,
+    } = req.body;
+
+    const targetContentSessionId = content_session_id ?? contentSessionId;
+    const targetPromptNumber = prompt_number ?? promptNumber;
+    const targetPromptText = prompt_text ?? promptText;
+
+    if (!targetContentSessionId || typeof targetContentSessionId !== 'string') {
+      this.badRequest(res, 'content_session_id is required');
+      return;
+    }
+    if (!Number.isInteger(targetPromptNumber)) {
+      this.badRequest(res, 'prompt_number must be an integer');
+      return;
+    }
+    if (!targetPromptText || typeof targetPromptText !== 'string') {
+      this.badRequest(res, 'prompt_text is required');
+      return;
+    }
+
+    const store = this.dbManager.getSessionStore();
+    const id = store.saveUserPrompt(targetContentSessionId, targetPromptNumber, targetPromptText);
+    const prompt = store.getUserPromptsByIds([id])[0] ?? null;
+    res.status(201).json(prompt);
+  });
+
   /**
    * Get observation by ID
    * GET /api/observation/:id
@@ -107,6 +255,38 @@ export class DataRoutes extends BaseRouteHandler {
     }
 
     res.json(observation);
+  });
+
+  private handleUpdateObservation = this.wrapHandler((req: Request, res: Response): void => {
+    const id = this.parseIntParam(req, res, 'id');
+    if (id === null) return;
+
+    const store = this.dbManager.getSessionStore();
+    const updated = store.updateObservation(id, req.body);
+
+    if (!updated) {
+      const existing = store.getObservationById(id);
+      if (!existing) {
+        this.notFound(res, `Observation #${id} not found`);
+        return;
+      }
+    }
+
+    res.json(store.getObservationById(id));
+  });
+
+  private handleDeleteObservation = this.wrapHandler((req: Request, res: Response): void => {
+    const id = this.parseIntParam(req, res, 'id');
+    if (id === null) return;
+
+    const store = this.dbManager.getSessionStore();
+    const deleted = store.deleteObservation(id);
+    if (!deleted) {
+      this.notFound(res, `Observation #${id} not found`);
+      return;
+    }
+
+    res.json({ success: true, id });
   });
 
   /**
@@ -163,6 +343,53 @@ export class DataRoutes extends BaseRouteHandler {
     res.json(sessions[0]);
   });
 
+  private handleGetSummaryById = this.wrapHandler((req: Request, res: Response): void => {
+    const id = this.parseIntParam(req, res, 'id');
+    if (id === null) return;
+
+    const store = this.dbManager.getSessionStore();
+    const summary = store.getStoredSessionSummaryById(id);
+
+    if (!summary) {
+      this.notFound(res, `Summary #${id} not found`);
+      return;
+    }
+
+    res.json(summary);
+  });
+
+  private handleUpdateSummary = this.wrapHandler((req: Request, res: Response): void => {
+    const id = this.parseIntParam(req, res, 'id');
+    if (id === null) return;
+
+    const store = this.dbManager.getSessionStore();
+    const updated = store.updateSessionSummary(id, req.body);
+
+    if (!updated) {
+      const existing = store.getStoredSessionSummaryById(id);
+      if (!existing) {
+        this.notFound(res, `Summary #${id} not found`);
+        return;
+      }
+    }
+
+    res.json(store.getStoredSessionSummaryById(id));
+  });
+
+  private handleDeleteSummary = this.wrapHandler((req: Request, res: Response): void => {
+    const id = this.parseIntParam(req, res, 'id');
+    if (id === null) return;
+
+    const store = this.dbManager.getSessionStore();
+    const deleted = store.deleteSessionSummary(id);
+    if (!deleted) {
+      this.notFound(res, `Summary #${id} not found`);
+      return;
+    }
+
+    res.json({ success: true, id });
+  });
+
   /**
    * Get SDK sessions by SDK session IDs
    * POST /api/sdk-sessions/batch
@@ -203,6 +430,48 @@ export class DataRoutes extends BaseRouteHandler {
     }
 
     res.json(prompts[0]);
+  });
+
+  private handleUpdatePrompt = this.wrapHandler((req: Request, res: Response): void => {
+    const id = this.parseIntParam(req, res, 'id');
+    if (id === null) return;
+
+    const {
+      prompt_number,
+      promptNumber,
+      prompt_text,
+      promptText,
+    } = req.body;
+
+    const store = this.dbManager.getSessionStore();
+    const updated = store.updateUserPrompt(id, {
+      prompt_number: prompt_number ?? promptNumber,
+      prompt_text: prompt_text ?? promptText,
+    });
+
+    if (!updated) {
+      const existing = store.getUserPromptsByIds([id])[0];
+      if (!existing) {
+        this.notFound(res, `Prompt #${id} not found`);
+        return;
+      }
+    }
+
+    res.json(store.getUserPromptsByIds([id])[0] ?? null);
+  });
+
+  private handleDeletePrompt = this.wrapHandler((req: Request, res: Response): void => {
+    const id = this.parseIntParam(req, res, 'id');
+    if (id === null) return;
+
+    const store = this.dbManager.getSessionStore();
+    const deleted = store.deleteUserPrompt(id);
+    if (!deleted) {
+      this.notFound(res, `Prompt #${id} not found`);
+      return;
+    }
+
+    res.json({ success: true, id });
   });
 
   /**

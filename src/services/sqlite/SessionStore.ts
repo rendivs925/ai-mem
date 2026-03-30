@@ -1184,6 +1184,102 @@ export class SessionStore {
     return stmt.get(id) as ObservationRecord | undefined || null;
   }
 
+  updateObservation(
+    id: number,
+    updates: {
+      project?: string;
+      type?: string;
+      title?: string | null;
+      subtitle?: string | null;
+      facts?: string[];
+      narrative?: string | null;
+      concepts?: string[];
+      files_read?: string[];
+      files_modified?: string[];
+      prompt_number?: number | null;
+      discovery_tokens?: number;
+    }
+  ): boolean {
+    const existing = this.getObservationById(id);
+    if (!existing) return false;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (updates.project !== undefined) {
+      fields.push('project = ?');
+      values.push(updates.project);
+    }
+    if (updates.type !== undefined) {
+      fields.push('type = ?');
+      values.push(updates.type);
+    }
+    if (updates.title !== undefined) {
+      fields.push('title = ?');
+      values.push(updates.title);
+    }
+    if (updates.subtitle !== undefined) {
+      fields.push('subtitle = ?');
+      values.push(updates.subtitle);
+    }
+    if (updates.facts !== undefined) {
+      fields.push('facts = ?');
+      values.push(JSON.stringify(updates.facts));
+    }
+    if (updates.narrative !== undefined) {
+      fields.push('narrative = ?');
+      values.push(updates.narrative);
+    }
+    if (updates.concepts !== undefined) {
+      fields.push('concepts = ?');
+      values.push(JSON.stringify(updates.concepts));
+    }
+    if (updates.files_read !== undefined) {
+      fields.push('files_read = ?');
+      values.push(JSON.stringify(updates.files_read));
+    }
+    if (updates.files_modified !== undefined) {
+      fields.push('files_modified = ?');
+      values.push(JSON.stringify(updates.files_modified));
+    }
+    if (updates.prompt_number !== undefined) {
+      fields.push('prompt_number = ?');
+      values.push(updates.prompt_number);
+    }
+    if (updates.discovery_tokens !== undefined) {
+      fields.push('discovery_tokens = ?');
+      values.push(updates.discovery_tokens);
+    }
+
+    if (updates.title !== undefined || updates.narrative !== undefined) {
+      const title = updates.title !== undefined ? updates.title : (((existing as unknown as { title?: string | null }).title) ?? null);
+      const narrative = updates.narrative !== undefined ? updates.narrative : (((existing as unknown as { narrative?: string | null }).narrative) ?? null);
+      fields.push('content_hash = ?');
+      values.push(computeObservationContentHash(existing.memory_session_id, title, narrative));
+    }
+
+    if (fields.length === 0) return false;
+
+    const stmt = this.db.prepare(`
+      UPDATE observations
+      SET ${fields.join(', ')}
+      WHERE id = ?
+    `);
+
+    const result = stmt.run(...values, id);
+    return (result.changes ?? 0) > 0;
+  }
+
+  deleteObservation(id: number): boolean {
+    const stmt = this.db.prepare(`
+      DELETE FROM observations
+      WHERE id = ?
+    `);
+
+    const result = stmt.run(id);
+    return (result.changes ?? 0) > 0;
+  }
+
   /**
    * Get observations by array of IDs with ordering and limit
    */
@@ -1285,6 +1381,74 @@ export class SessionStore {
     `);
 
     return stmt.get(memorySessionId) || null;
+  }
+
+  getStoredSessionSummaryById(id: number): SessionSummaryRecord | null {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM session_summaries
+      WHERE id = ?
+    `);
+
+    return stmt.get(id) as SessionSummaryRecord | undefined || null;
+  }
+
+  updateSessionSummary(
+    id: number,
+    updates: {
+      project?: string;
+      request?: string | null;
+      investigated?: string | null;
+      learned?: string | null;
+      completed?: string | null;
+      next_steps?: string | null;
+      files_read?: string | null;
+      files_edited?: string | null;
+      notes?: string | null;
+      prompt_number?: number | null;
+      discovery_tokens?: number;
+    }
+  ): boolean {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    const assign = (column: string, value: unknown) => {
+      fields.push(`${column} = ?`);
+      values.push(value);
+    };
+
+    if (updates.project !== undefined) assign('project', updates.project);
+    if (updates.request !== undefined) assign('request', updates.request);
+    if (updates.investigated !== undefined) assign('investigated', updates.investigated);
+    if (updates.learned !== undefined) assign('learned', updates.learned);
+    if (updates.completed !== undefined) assign('completed', updates.completed);
+    if (updates.next_steps !== undefined) assign('next_steps', updates.next_steps);
+    if (updates.files_read !== undefined) assign('files_read', updates.files_read);
+    if (updates.files_edited !== undefined) assign('files_edited', updates.files_edited);
+    if (updates.notes !== undefined) assign('notes', updates.notes);
+    if (updates.prompt_number !== undefined) assign('prompt_number', updates.prompt_number);
+    if (updates.discovery_tokens !== undefined) assign('discovery_tokens', updates.discovery_tokens);
+
+    if (fields.length === 0) return false;
+
+    const stmt = this.db.prepare(`
+      UPDATE session_summaries
+      SET ${fields.join(', ')}
+      WHERE id = ?
+    `);
+
+    const result = stmt.run(...values, id);
+    return (result.changes ?? 0) > 0;
+  }
+
+  deleteSessionSummary(id: number): boolean {
+    const stmt = this.db.prepare(`
+      DELETE FROM session_summaries
+      WHERE id = ?
+    `);
+
+    const result = stmt.run(id);
+    return (result.changes ?? 0) > 0;
   }
 
   /**
@@ -1480,6 +1644,48 @@ export class SessionStore {
 
     const result = stmt.run(contentSessionId, promptNumber, promptText, now.toISOString(), nowEpoch);
     return result.lastInsertRowid as number;
+  }
+
+  updateUserPrompt(
+    id: number,
+    updates: {
+      prompt_number?: number;
+      prompt_text?: string;
+    }
+  ): boolean {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (updates.prompt_number !== undefined) {
+      fields.push('prompt_number = ?');
+      values.push(updates.prompt_number);
+    }
+
+    if (updates.prompt_text !== undefined) {
+      fields.push('prompt_text = ?');
+      values.push(updates.prompt_text);
+    }
+
+    if (fields.length === 0) return false;
+
+    const stmt = this.db.prepare(`
+      UPDATE user_prompts
+      SET ${fields.join(', ')}
+      WHERE id = ?
+    `);
+
+    const result = stmt.run(...values, id);
+    return (result.changes ?? 0) > 0;
+  }
+
+  deleteUserPrompt(id: number): boolean {
+    const stmt = this.db.prepare(`
+      DELETE FROM user_prompts
+      WHERE id = ?
+    `);
+
+    const result = stmt.run(id);
+    return (result.changes ?? 0) > 0;
   }
 
   /**

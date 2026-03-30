@@ -62,6 +62,18 @@ describe('DataRoutes Type Coercion', () => {
   let mockGetObservationsByIds: ReturnType<typeof mock>;
   let mockGetSdkSessionsBySessionIds: ReturnType<typeof mock>;
   let mockDbPrepare: ReturnType<typeof mock>;
+  let mockGetObservationById: ReturnType<typeof mock>;
+  let mockStoreObservation: ReturnType<typeof mock>;
+  let mockUpdateObservation: ReturnType<typeof mock>;
+  let mockDeleteObservation: ReturnType<typeof mock>;
+  let mockGetStoredSessionSummaryById: ReturnType<typeof mock>;
+  let mockStoreSummary: ReturnType<typeof mock>;
+  let mockUpdateSessionSummary: ReturnType<typeof mock>;
+  let mockDeleteSessionSummary: ReturnType<typeof mock>;
+  let mockSaveUserPrompt: ReturnType<typeof mock>;
+  let mockUpdateUserPrompt: ReturnType<typeof mock>;
+  let mockDeleteUserPrompt: ReturnType<typeof mock>;
+  let mockGetUserPromptsByIds: ReturnType<typeof mock>;
 
   beforeEach(() => {
     loggerSpies = [
@@ -74,6 +86,18 @@ describe('DataRoutes Type Coercion', () => {
 
     mockGetObservationsByIds = mock(() => [{ id: 1 }, { id: 2 }]);
     mockGetSdkSessionsBySessionIds = mock(() => [{ id: 'abc' }]);
+    mockGetObservationById = mock((id: number) => id === 99 ? null : ({ id, title: 'obs' }));
+    mockStoreObservation = mock(() => ({ id: 11 }));
+    mockUpdateObservation = mock(() => true);
+    mockDeleteObservation = mock(() => true);
+    mockGetStoredSessionSummaryById = mock((id: number) => id === 99 ? null : ({ id, learned: 'summary' }));
+    mockStoreSummary = mock(() => ({ id: 21 }));
+    mockUpdateSessionSummary = mock(() => true);
+    mockDeleteSessionSummary = mock(() => true);
+    mockSaveUserPrompt = mock(() => 31);
+    mockUpdateUserPrompt = mock(() => true);
+    mockDeleteUserPrompt = mock(() => true);
+    mockGetUserPromptsByIds = mock((ids: number[]) => ids[0] === 99 ? [] : [{ id: ids[0], prompt_text: 'prompt', prompt_number: 1 }]);
     mockDbPrepare = mock((sql: string) => ({
       get: () => {
         if (sql.includes('FROM observations')) return { count: 12 };
@@ -86,8 +110,20 @@ describe('DataRoutes Type Coercion', () => {
     const mockDbManager = {
       getSessionStore: () => ({
         db: { prepare: mockDbPrepare },
+        getObservationById: mockGetObservationById,
         getObservationsByIds: mockGetObservationsByIds,
+        storeObservation: mockStoreObservation,
+        updateObservation: mockUpdateObservation,
+        deleteObservation: mockDeleteObservation,
+        getStoredSessionSummaryById: mockGetStoredSessionSummaryById,
+        storeSummary: mockStoreSummary,
+        updateSessionSummary: mockUpdateSessionSummary,
+        deleteSessionSummary: mockDeleteSessionSummary,
         getSdkSessionsBySessionIds: mockGetSdkSessionsBySessionIds,
+        saveUserPrompt: mockSaveUserPrompt,
+        updateUserPrompt: mockUpdateUserPrompt,
+        deleteUserPrompt: mockDeleteUserPrompt,
+        getUserPromptsByIds: mockGetUserPromptsByIds,
       }),
     };
 
@@ -116,6 +152,7 @@ describe('DataRoutes Type Coercion', () => {
         post: mock((path: string, fn: any) => {
           if (path === '/api/observations/batch') handler = fn;
         }),
+        patch: mock(() => {}),
         delete: mock(() => {}),
       };
       routes.setupRoutes(mockApp as any);
@@ -177,6 +214,7 @@ describe('DataRoutes Type Coercion', () => {
         post: mock((path: string, fn: any) => {
           if (path === '/api/sdk-sessions/batch') handler = fn;
         }),
+        patch: mock(() => {}),
         delete: mock(() => {}),
       };
       routes.setupRoutes(mockApp as any);
@@ -231,6 +269,7 @@ describe('DataRoutes Type Coercion', () => {
           if (path === '/api/stats') handler = fn;
         }),
         post: mock(() => {}),
+        patch: mock(() => {}),
         delete: mock(() => {}),
       };
       routes.setupRoutes(mockApp as any);
@@ -269,6 +308,105 @@ describe('DataRoutes Type Coercion', () => {
           topSignals: ['architecture', 'workflow', 'constraint'],
         }),
       }));
+    });
+  });
+
+  describe('CRUD route registration and behavior', () => {
+    let handlers: Record<string, (req: Request, res: Response) => void>;
+
+    beforeEach(() => {
+      handlers = {};
+      const mockApp = {
+        get: mock((path: string, fn: any) => { handlers[`GET ${path}`] = fn; }),
+        post: mock((path: string, fn: any) => { handlers[`POST ${path}`] = fn; }),
+        patch: mock((path: string, fn: any) => { handlers[`PATCH ${path}`] = fn; }),
+        delete: mock((path: string, fn: any) => { handlers[`DELETE ${path}`] = fn; }),
+      };
+      routes.setupRoutes(mockApp as any);
+    });
+
+    it('creates observation records through the store', () => {
+      const jsonSpy = mock(() => {});
+      const statusSpy = mock(() => ({ json: jsonSpy }));
+      handlers['POST /api/observations']({
+        body: {
+          memory_session_id: 'mem-1',
+          project: 'proj',
+          type: 'discovery',
+          title: 'obs title',
+          facts: ['a'],
+          concepts: ['b'],
+        },
+        path: '/api/observations',
+      } as Request, { json: jsonSpy, status: statusSpy } as unknown as Response);
+
+      expect(mockStoreObservation).toHaveBeenCalled();
+      expect(statusSpy).toHaveBeenCalledWith(201);
+      expect(jsonSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }));
+    });
+
+    it('updates and deletes observation records through the store', () => {
+      const jsonSpy = mock(() => {});
+      handlers['PATCH /api/observation/:id']({
+        params: { id: '11' },
+        body: { title: 'updated' },
+        path: '/api/observation/11',
+      } as unknown as Request, { json: jsonSpy, status: mock(() => ({ json: jsonSpy })) } as unknown as Response);
+      expect(mockUpdateObservation).toHaveBeenCalledWith(11, { title: 'updated' });
+
+      handlers['DELETE /api/observation/:id']({
+        params: { id: '11' },
+        path: '/api/observation/11',
+      } as unknown as Request, { json: jsonSpy, status: mock(() => ({ json: jsonSpy })) } as unknown as Response);
+      expect(mockDeleteObservation).toHaveBeenCalledWith(11);
+    });
+
+    it('creates, updates, and deletes summaries through the store', () => {
+      const jsonSpy = mock(() => {});
+      const statusSpy = mock(() => ({ json: jsonSpy }));
+      handlers['POST /api/summaries']({
+        body: { memory_session_id: 'mem-1', project: 'proj', request: 'req' },
+        path: '/api/summaries',
+      } as Request, { json: jsonSpy, status: statusSpy } as unknown as Response);
+      expect(mockStoreSummary).toHaveBeenCalled();
+      expect(statusSpy).toHaveBeenCalledWith(201);
+
+      handlers['PATCH /api/summary/:id']({
+        params: { id: '21' },
+        body: { learned: 'updated' },
+        path: '/api/summary/21',
+      } as unknown as Request, { json: jsonSpy, status: mock(() => ({ json: jsonSpy })) } as unknown as Response);
+      expect(mockUpdateSessionSummary).toHaveBeenCalledWith(21, { learned: 'updated' });
+
+      handlers['DELETE /api/summary/:id']({
+        params: { id: '21' },
+        path: '/api/summary/21',
+      } as unknown as Request, { json: jsonSpy, status: mock(() => ({ json: jsonSpy })) } as unknown as Response);
+      expect(mockDeleteSessionSummary).toHaveBeenCalledWith(21);
+    });
+
+    it('creates, updates, and deletes prompts through the store', () => {
+      const jsonSpy = mock(() => {});
+      const statusSpy = mock(() => ({ json: jsonSpy }));
+      handlers['POST /api/prompts']({
+        body: { content_session_id: 'content-1', prompt_number: 1, prompt_text: 'hello' },
+        path: '/api/prompts',
+      } as Request, { json: jsonSpy, status: statusSpy } as unknown as Response);
+      expect(mockSaveUserPrompt).toHaveBeenCalledWith('content-1', 1, 'hello');
+      expect(statusSpy).toHaveBeenCalledWith(201);
+
+      handlers['PATCH /api/prompt/:id']({
+        params: { id: '31' },
+        body: { prompt_text: 'updated' },
+        path: '/api/prompt/31',
+      } as unknown as Request, { json: jsonSpy, status: mock(() => ({ json: jsonSpy })) } as unknown as Response);
+      expect(mockUpdateUserPrompt).toHaveBeenCalledWith(31, { prompt_number: undefined, prompt_text: 'updated' });
+
+      handlers['DELETE /api/prompt/:id']({
+        params: { id: '31' },
+        path: '/api/prompt/31',
+      } as unknown as Request, { json: jsonSpy, status: mock(() => ({ json: jsonSpy })) } as unknown as Response);
+      expect(mockDeleteUserPrompt).toHaveBeenCalledWith(31);
     });
   });
 });

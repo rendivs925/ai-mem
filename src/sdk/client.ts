@@ -90,6 +90,40 @@ export interface TimelineEntry {
   text: string;
 }
 
+export interface ObservationCrudInput {
+  memory_session_id: string;
+  project: string;
+  type: string;
+  title?: string | null;
+  subtitle?: string | null;
+  facts?: string[];
+  narrative?: string | null;
+  concepts?: string[];
+  files_read?: string[];
+  files_modified?: string[];
+  prompt_number?: number | null;
+  discovery_tokens?: number;
+}
+
+export interface SummaryCrudInput {
+  memory_session_id: string;
+  project: string;
+  request?: string;
+  investigated?: string;
+  learned?: string;
+  completed?: string;
+  next_steps?: string;
+  notes?: string | null;
+  prompt_number?: number | null;
+  discovery_tokens?: number;
+}
+
+export interface PromptCrudInput {
+  content_session_id: string;
+  prompt_number: number;
+  prompt_text: string;
+}
+
 export class AiMemClient {
   private baseUrl: string;
   private timeoutMs: number;
@@ -218,6 +252,75 @@ export class AiMemClient {
   /** Get memory statistics */
   async stats(): Promise<MemoryStats> {
     return this.request<MemoryStats>('/api/stats');
+  }
+
+  /** Create an observation record */
+  async createObservation(input: ObservationCrudInput): Promise<unknown> {
+    return this.request('/api/observations', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** Update an observation record */
+  async updateObservation(id: number, updates: Partial<ObservationCrudInput>): Promise<unknown> {
+    return this.request(`/api/observation/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /** Delete an observation record */
+  async deleteObservation(id: number): Promise<{ success: boolean; id: number }> {
+    return this.request(`/api/observation/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Create a summary record */
+  async createSummary(input: SummaryCrudInput): Promise<unknown> {
+    return this.request('/api/summaries', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** Update a summary record */
+  async updateSummary(id: number, updates: Partial<Omit<SummaryCrudInput, 'memory_session_id'>>): Promise<unknown> {
+    return this.request(`/api/summary/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /** Delete a summary record */
+  async deleteSummary(id: number): Promise<{ success: boolean; id: number }> {
+    return this.request(`/api/summary/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Create a prompt record */
+  async createPrompt(input: PromptCrudInput): Promise<unknown> {
+    return this.request('/api/prompts', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** Update a prompt record */
+  async updatePrompt(id: number, updates: Partial<Pick<PromptCrudInput, 'prompt_number' | 'prompt_text'>>): Promise<unknown> {
+    return this.request(`/api/prompt/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /** Delete a prompt record */
+  async deletePrompt(id: number): Promise<{ success: boolean; id: number }> {
+    return this.request(`/api/prompt/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   /** Initialize a session */
