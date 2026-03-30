@@ -37,9 +37,8 @@ export const sessionInitHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
-    // Handle image-only prompts (where text prompt is empty/undefined)
-    // Use placeholder so sessions still get created and tracked for memory
-    const prompt = (!rawPrompt || !rawPrompt.trim()) ? '[media prompt]' : rawPrompt;
+    // Preserve media-only turns as empty prompt text instead of inventing synthetic content.
+    const prompt = typeof rawPrompt === 'string' ? rawPrompt : '';
 
     const project = getProjectContext(cwd).canonical;
 

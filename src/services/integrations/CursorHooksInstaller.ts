@@ -672,10 +672,9 @@ export async function handleCursorCommand(subcommand: string, args: string[]): P
     }
 
     case 'setup': {
-      // Interactive guided setup - handled by main() in worker-service.ts
-      // This is a placeholder that should not be reached
-      console.log('Use the main entry point for setup');
-      return 0;
+      const target = (args[0] || 'project') as CursorInstallTarget;
+      console.log(`Running Cursor setup for ${target} target...`);
+      return installCursorHooks(target);
     }
 
     default: {

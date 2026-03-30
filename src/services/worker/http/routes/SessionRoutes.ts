@@ -719,7 +719,7 @@ export class SessionRoutes extends BaseRouteHandler {
     // Only sessionId/contentSessionId is truly required — Cursor and other platforms
     // may omit prompt/project in their payload (#838, #1049)
     const project = (req.body.project as string) || 'unknown';
-    const prompt = (req.body.prompt as string) || '[media prompt]';
+    const prompt = typeof req.body.prompt === 'string' ? req.body.prompt : '';
     const customTitle = req.body.customTitle as string | undefined;
     const platform = req.body.platform as string | undefined;
 
