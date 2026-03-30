@@ -1,13 +1,13 @@
 // ai-mem OpenCode Plugin
 // Provides persistent memory with brain-inspired features for OpenCode
 
-import type { Plugin, PluginInput } from "@opencode-ai/plugin";
+import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { BrainEngine, createBrainEngine } from "../engine/brain/engine";
-import { parseBrainSettings } from "../config/brain-settings";
+import { defaultBrainSettings, parseBrainSettings, type BrainSettings } from "../config/brain-settings";
 import { AiMemDatabase } from "../services/sqlite/Database";
 import { DB_PATH } from "../shared/paths";
-import { getProjectAliases, getProjectContext } from "../utils/project-name";
+import { getProjectContext } from "../utils/project-name";
 
 type EngineState = {
   db: AiMemDatabase;
@@ -52,9 +52,11 @@ const COMMAND_METADATA = {
 
 const ARG_TOKEN_REGEX = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi;
 const QUOTE_TRIM_REGEX = /^["']|["']$/g;
+const NOISY_TOOLS = new Set(["read", "glob", "grep", "search", "find", "ls", "list", "view"]);
+const HIGH_SIGNAL_PATTERN =
+  /\b(decision|because|fix|fixed|error|failed|failure|root cause|summary|plan|architecture|workflow|remember)\b/i;
 
-async function getEngine(input: PluginInput): Promise<BrainEngine> {
-  const settings = parseBrainSettings(undefined);
+async function getEngine(settings: BrainSettings): Promise<BrainEngine> {
   const stateKey = `${DB_PATH}:${JSON.stringify(settings)}`;
   const existing = engineStateByDbPath.get(stateKey);
   if (existing) {
@@ -84,6 +86,21 @@ function projectName(input: PluginInput): string {
 function projectAliases(input: PluginInput): string[] {
   const context = projectContext(input);
   return context.allProjects;
+}
+
+function toolKind(name: string): "change" | "discovery" {
+  return name.includes("edit") || name.includes("write") ? "change" : "discovery";
+}
+
+function shouldCaptureToolOutput(toolName: string, output: string, files: string[]): boolean {
+  const trimmed = output.trim();
+  if (trimmed.length < 40) return false;
+
+  if (toolKind(toolName) === "change") return true;
+  if (NOISY_TOOLS.has(toolName)) return false;
+  if (files.length > 0 && trimmed.length >= 80) return true;
+
+  return HIGH_SIGNAL_PATTERN.test(trimmed);
 }
 
 function extractConcepts(text: string): string[] {
@@ -278,11 +295,16 @@ function formatStatsOutput(stats: Awaited<ReturnType<BrainEngine["getStats"]>>):
 }
 
 export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
-  const engine = await getEngine(pluginInput);
   const projects = projectAliases(pluginInput);
+  let currentSettings = defaultBrainSettings;
 
-  return {
+  const resolveEngine = async () => getEngine(currentSettings);
+
+  const resolveHooks = (): Hooks => ({
     config: async (config) => {
+      const nextSettings = parseBrainSettings((config as Record<string, unknown>)["ai-mem"]);
+      currentSettings = nextSettings;
+
       config.command = config.command ?? {};
       for (const [name, metadata] of Object.entries(COMMAND_METADATA)) {
         if (config.command[name]) continue;
@@ -302,9 +324,11 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
           tiers: tool.schema.array(tool.schema.string()).optional().describe("Filter by memory tiers"),
         },
         async execute(args) {
+          const engine = await resolveEngine();
           const results = await engine.retrieveMemories(
             args.query,
             {
+              projects,
               tiers: args.tiers as never,
             },
             args.limit || 50
@@ -334,6 +358,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
           memoryId: tool.schema.string().describe("Memory ID to recall"),
         },
         async execute(args) {
+          const engine = await resolveEngine();
           const memory = await engine.getMemoryById(args.memoryId);
           if (!memory) {
             return "Memory not found";
@@ -353,6 +378,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
         description: "Get memory statistics by tier and activation",
         args: {},
         async execute() {
+          const engine = await resolveEngine();
           const stats = await engine.getStats();
           return formatStatsOutput(stats);
         },
@@ -362,6 +388,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
         description: "Trigger memory consolidation (deduplication, linking, pruning)",
         args: {},
         async execute() {
+          const engine = await resolveEngine();
           const result = await engine.consolidate();
           return [
             "Consolidation complete",
@@ -374,6 +401,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
     },
 
     "command.execute.before": async (commandInput, output) => {
+      const engine = await resolveEngine();
       const result = await executeMemoryCommand(engine, commandInput.command, commandInput.arguments, projects);
       if (!result) return;
       output.parts = [
@@ -385,6 +413,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
     },
 
     "chat.message": async (_input, output) => {
+      const engine = await resolveEngine();
       const query = output.parts
         .filter((part) => part.type === "text")
         .map((part) => part.text)
@@ -413,6 +442,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
       input: { tool: string; sessionID: string; args: Record<string, unknown> },
       output
     ) => {
+      const engine = await resolveEngine();
       const project = projectName(pluginInput);
       const argumentText = JSON.stringify(input.args);
       const files = Array.from(
@@ -423,7 +453,8 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
         ),
       ).slice(0, 10);
 
-      if (output.output && output.output.trim().length > 24) {
+      if (output.output && shouldCaptureToolOutput(input.tool, output.output, files)) {
+        const kind = toolKind(input.tool);
         await engine.captureMemory(
           input.sessionID,
           project,
@@ -433,15 +464,16 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
             facts: argumentText.length > 2 ? [argumentText.slice(0, 300)] : [],
             concepts: withSourceConcepts("opencode", [input.tool, ...extractConcepts(output.output)]),
             filesRead: files,
-            filesModified: input.tool.includes("edit") || input.tool.includes("write") ? files : [],
+            filesModified: kind === "change" ? files : [],
           },
-          input.tool.includes("edit") || input.tool.includes("write") ? "change" : "discovery",
-          files.length > 0 ? 0.8 : 0.65,
+          kind,
+          kind === "change" ? 0.85 : files.length > 0 ? 0.7 : 0.6,
         );
       }
     },
 
     "experimental.session.compacting": async (_input, output) => {
+      const engine = await resolveEngine();
       const results = await engine.retrieveMemories("", { projects }, 100);
       const memories = results.map((r) => r.cmu).slice(0, 50);
       if (memories.length === 0) return;
@@ -457,6 +489,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
     },
 
     "experimental.chat.system.transform": async (_input, output) => {
+      const engine = await resolveEngine();
       const results = await engine.retrieveMemories(
         "",
         {
@@ -481,6 +514,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
 
     event: async ({ event }) => {
       if (event.type === "command.executed") {
+        const engine = await resolveEngine();
         await captureCommandMemory(
           engine,
           pluginInput,
@@ -492,10 +526,13 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
       }
 
       if (event.type === "session.idle" || event.type === "session.compacted") {
+        const engine = await resolveEngine();
         await maybeConsolidate(engine);
       }
     },
-  };
+  });
+
+  return resolveHooks();
 };
 
 export default AiMemPlugin;

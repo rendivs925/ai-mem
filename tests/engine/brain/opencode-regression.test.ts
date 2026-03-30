@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { ClaudeMemDatabase } from "../../../src/services/sqlite/Database.js";
+import { AiMemDatabase } from "../../../src/services/sqlite/Database.js";
 import { createBrainEngine } from "../../../src/engine/brain/engine.js";
 import { calculateBaseActivation } from "../../../src/engine/brain/activation.js";
 import { defaultBrainSettings, parseBrainSettings } from "../../../src/config/brain-settings.js";
 import { getProjectAliases, getProjectContext } from "../../../src/utils/project-name.js";
 
 describe("OpenCode brain integration regressions", () => {
-  const databases: ClaudeMemDatabase[] = [];
+  const databases: AiMemDatabase[] = [];
 
   afterEach(() => {
     for (const db of databases.splice(0)) {
@@ -20,7 +20,7 @@ describe("OpenCode brain integration regressions", () => {
   });
 
   it("returns stored memories for empty queries", async () => {
-    const db = new ClaudeMemDatabase(":memory:");
+    const db = new AiMemDatabase(":memory:");
     databases.push(db);
 
     const engine = createBrainEngine(db.db);
@@ -47,7 +47,7 @@ describe("OpenCode brain integration regressions", () => {
   });
 
   it("matches any supplied keyword instead of requiring one combined pattern", async () => {
-    const db = new ClaudeMemDatabase(":memory:");
+    const db = new AiMemDatabase(":memory:");
     databases.push(db);
 
     const engine = createBrainEngine(db.db);
@@ -89,7 +89,7 @@ describe("OpenCode brain integration regressions", () => {
   });
 
   it("creates the backing session row and recalls memories by persisted row id", async () => {
-    const db = new ClaudeMemDatabase(":memory:");
+    const db = new AiMemDatabase(":memory:");
     databases.push(db);
 
     const engine = createBrainEngine(db.db);
@@ -129,7 +129,7 @@ describe("OpenCode brain integration regressions", () => {
   });
 
   it("persists consolidation by linking related memories and removing duplicates", async () => {
-    const db = new ClaudeMemDatabase(":memory:");
+    const db = new AiMemDatabase(":memory:");
     databases.push(db);
 
     const engine = createBrainEngine(db.db);
@@ -192,7 +192,7 @@ describe("OpenCode brain integration regressions", () => {
   });
 
   it("matches canonical and legacy project names across tools", async () => {
-    const db = new ClaudeMemDatabase(":memory:");
+    const db = new AiMemDatabase(":memory:");
     databases.push(db);
 
     const engine = createBrainEngine(db.db);

@@ -14,9 +14,11 @@ import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { createBrainEngine } from '../../engine/brain/engine.js';
+import { AiMemDatabase } from '../sqlite/Database.js';
 import { logger } from '../../utils/logger.js';
 import { getWorkerPort, workerHttpRequest } from '../../shared/worker-utils.js';
-import { DATA_DIR, MARKETPLACE_ROOT, CLAUDE_CONFIG_DIR } from '../../shared/paths.js';
+import { DATA_DIR, MARKETPLACE_ROOT, CLAUDE_CONFIG_DIR, DB_PATH } from '../../shared/paths.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import {
   readCursorRegistry as readCursorRegistryFromFile,
@@ -27,6 +29,51 @@ import {
 import type { CursorInstallTarget, CursorHooksJson, CursorMcpConfig, Platform } from './types.js';
 
 const execAsync = promisify(exec);
+
+async function buildDirectCursorContext(projectName: string): Promise<string> {
+  const db = new AiMemDatabase(DB_PATH);
+
+  try {
+    const engine = createBrainEngine(db.db);
+    await engine.initialize();
+    const results = await engine.retrieveMemories(
+      '',
+      {
+        projects: [projectName],
+        tiers: ['semantic', 'procedural', 'episodic'] as never,
+      },
+      12,
+    );
+
+    if (results.length === 0) {
+      return `---
+alwaysApply: true
+description: "ai-mem context from shared memory"
+---
+
+# Memory Context
+
+No stored memory exists for this project yet.
+`;
+    }
+
+    const lines = results.map((result) =>
+      `- [${result.cmu.tier}] ${result.cmu.content.title}: ${result.cmu.content.narrative.slice(0, 220)}`,
+    );
+
+    return `---
+alwaysApply: true
+description: "ai-mem context from shared memory"
+---
+
+# Memory Context
+
+${lines.join('\n')}
+`;
+  } finally {
+    db.close();
+  }
+}
 
 // Standard paths
 const CURSOR_REGISTRY_FILE = path.join(DATA_DIR, 'cursor-projects.json');
@@ -422,26 +469,13 @@ async function setupProjectContext(targetDir: string, workspaceRoot: string): Pr
       }
     }
   } catch (error) {
-    // [ANTI-PATTERN IGNORED]: Fallback behavior - worker not running, use placeholder
     logger.debug('CURSOR', 'Worker not running during install', {}, error as Error);
   }
 
   if (!contextGenerated) {
-    // Create placeholder context file
-    const rulesFile = path.join(rulesDir, 'ai-mem-context.mdc');
-    const placeholderContent = `---
-alwaysApply: true
-description: "Claude-mem context from past sessions (auto-updated)"
----
-
-# Memory Context from Past Sessions
-
-*No context yet. Complete your first session and context will appear here.*
-
-Use ai-mem's MCP search tools for manual memory queries.
-`;
-    writeFileSync(rulesFile, placeholderContent);
-    console.log(`  Created placeholder context file (will populate after first session)`);
+    const directContext = await buildDirectCursorContext(projectName);
+    writeContextFile(workspaceRoot, directContext);
+    console.log(`  Generated initial context directly from shared memory`);
   }
 
   // Register project for automatic context updates after summaries
