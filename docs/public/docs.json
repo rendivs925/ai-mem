@@ -75,6 +75,7 @@
           "development",
           "troubleshooting",
           "platform-integration",
+          "integrations/generic-quickstart",
           "openclaw-integration"
         ]
       },

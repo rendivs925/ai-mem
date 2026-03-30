@@ -28,7 +28,7 @@ const CHROMA_MCP_CLIENT_NAME = 'claude-mem-chroma';
 const CHROMA_MCP_CLIENT_VERSION = '1.0.0';
 const MCP_CONNECTION_TIMEOUT_MS = 30_000;
 const RECONNECT_BACKOFF_MS = 10_000; // Don't retry connections faster than this after failure
-const DEFAULT_CHROMA_DATA_DIR = path.join(os.homedir(), '.claude-mem', 'chroma');
+const DEFAULT_CHROMA_DATA_DIR = path.join(os.homedir(), '.ai-mem', 'chroma');
 const CHROMA_SUPERVISOR_ID = 'chroma-mcp';
 
 export class ChromaMcpManager {
@@ -188,16 +188,16 @@ export class ChromaMcpManager {
    */
   private buildCommandArgs(): string[] {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const chromaMode = settings.CLAUDE_MEM_CHROMA_MODE || 'local';
-    const pythonVersion = process.env.CLAUDE_MEM_PYTHON_VERSION || settings.CLAUDE_MEM_PYTHON_VERSION || '3.13';
+    const chromaMode = settings.AI_MEM_CHROMA_MODE || 'local';
+    const pythonVersion = process.env.AI_MEM_PYTHON_VERSION || settings.AI_MEM_PYTHON_VERSION || '3.13';
 
     if (chromaMode === 'remote') {
-      const chromaHost = settings.CLAUDE_MEM_CHROMA_HOST || '127.0.0.1';
-      const chromaPort = settings.CLAUDE_MEM_CHROMA_PORT || '8000';
-      const chromaSsl = settings.CLAUDE_MEM_CHROMA_SSL === 'true';
-      const chromaTenant = settings.CLAUDE_MEM_CHROMA_TENANT || 'default_tenant';
-      const chromaDatabase = settings.CLAUDE_MEM_CHROMA_DATABASE || 'default_database';
-      const chromaApiKey = settings.CLAUDE_MEM_CHROMA_API_KEY || '';
+      const chromaHost = settings.AI_MEM_CHROMA_HOST || '127.0.0.1';
+      const chromaPort = settings.AI_MEM_CHROMA_PORT || '8000';
+      const chromaSsl = settings.AI_MEM_CHROMA_SSL === 'true';
+      const chromaTenant = settings.AI_MEM_CHROMA_TENANT || 'default_tenant';
+      const chromaDatabase = settings.AI_MEM_CHROMA_DATABASE || 'default_database';
+      const chromaApiKey = settings.AI_MEM_CHROMA_API_KEY || '';
 
       const args = [
         '--python', pythonVersion,
@@ -362,12 +362,12 @@ export class ChromaMcpManager {
   /**
    * Get or create a combined SSL certificate bundle for Zscaler/corporate proxy environments.
    * On macOS, combines the Python certifi CA bundle with any Zscaler certificates from
-   * the system keychain. Caches the result for 24 hours at ~/.claude-mem/combined_certs.pem.
+   * the system keychain. Caches the result for 24 hours at ~/.ai-mem/combined_certs.pem.
    *
    * Returns the path to the combined cert file, or undefined if not needed/available.
    */
   private getCombinedCertPath(): string | undefined {
-    const combinedCertPath = path.join(os.homedir(), '.claude-mem', 'combined_certs.pem');
+    const combinedCertPath = path.join(os.homedir(), '.ai-mem', 'combined_certs.pem');
 
     if (fs.existsSync(combinedCertPath)) {
       const stats = fs.statSync(combinedCertPath);

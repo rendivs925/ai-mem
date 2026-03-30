@@ -21,7 +21,7 @@ import { getSupervisor, validateWorkerPidFile, type ValidateWorkerPidStatus } fr
 const execAsync = promisify(exec);
 
 // Standard paths for PID file management
-const DATA_DIR = path.join(homedir(), '.claude-mem');
+const DATA_DIR = path.join(homedir(), '.ai-mem');
 const PID_FILE = path.join(DATA_DIR, 'worker.pid');
 
 // Orphaned process cleanup patterns and thresholds
@@ -580,7 +580,7 @@ const CHROMA_MIGRATION_MARKER_FILENAME = '.chroma-cleaned-v10.3';
  * worker bugs that could corrupt chroma data. Since chroma is always rebuildable
  * from SQLite (via backfillAllProjects), this is safe.
  *
- * Checks for a marker file. If absent, wipes ~/.claude-mem/chroma/ and writes
+ * Checks for a marker file. If absent, wipes ~/.ai-mem/chroma/ and writes
  * the marker. If present, skips. Idempotent.
  *
  * @param dataDirectory - Override for DATA_DIR (used in tests)
@@ -631,7 +631,7 @@ export function spawnDaemon(
 
   const env = sanitizeEnv({
     ...process.env,
-    CLAUDE_MEM_WORKER_PORT: String(port),
+    AI_MEM_WORKER_PORT: String(port),
     ...extraEnv
   });
 

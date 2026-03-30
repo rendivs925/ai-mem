@@ -5,12 +5,12 @@ import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { BrainEngine, createBrainEngine } from "../engine/brain/engine";
 import { parseBrainSettings } from "../config/brain-settings";
-import { ClaudeMemDatabase } from "../services/sqlite/Database";
+import { AiMemDatabase } from "../services/sqlite/Database";
 import { DB_PATH } from "../shared/paths";
 import { getProjectAliases, getProjectContext } from "../utils/project-name";
 
 type EngineState = {
-  db: ClaudeMemDatabase;
+  db: AiMemDatabase;
   engine: BrainEngine;
 };
 
@@ -62,7 +62,7 @@ async function getEngine(input: PluginInput): Promise<BrainEngine> {
     return existing.engine;
   }
 
-  const db = new ClaudeMemDatabase(DB_PATH);
+  const db = new AiMemDatabase(DB_PATH);
   const engine = createBrainEngine(db.db, settings);
   await engine.initialize();
   engineStateByDbPath.set(stateKey, { db, engine });

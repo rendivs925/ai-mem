@@ -27,7 +27,7 @@ import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
 const WINDOWS_SPAWN_COOLDOWN_MS = 2 * 60 * 1000;
 
 function getWorkerSpawnLockPath(): string {
-  return path.join(SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR'), '.worker-start-attempted');
+  return path.join(SettingsDefaultsManager.get('AI_MEM_DATA_DIR'), '.worker-start-attempted');
 }
 
 function shouldSkipSpawnOnWindows(): boolean {
@@ -373,20 +373,20 @@ export class WorkerService {
 
       // One-time chroma wipe for users upgrading from versions with duplicate worker bugs.
       // Only runs in local mode (chroma is local-only). Backfill at line ~414 rebuilds from SQLite.
-      if (settings.CLAUDE_MEM_MODE === 'local' || !settings.CLAUDE_MEM_MODE) {
+      if (settings.AI_MEM_MODE === 'local' || !settings.AI_MEM_MODE) {
         runOneTimeChromaMigration();
       }
 
       // Initialize ChromaMcpManager only if Chroma is enabled
-      const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+      const chromaEnabled = settings.AI_MEM_CHROMA_ENABLED !== 'false';
       if (chromaEnabled) {
         this.chromaMcpManager = ChromaMcpManager.getInstance();
         logger.info('SYSTEM', 'ChromaMcpManager initialized (lazy - connects on first use)');
       } else {
-        logger.info('SYSTEM', 'Chroma disabled via CLAUDE_MEM_CHROMA_ENABLED=false, skipping ChromaMcpManager');
+        logger.info('SYSTEM', 'Chroma disabled via AI_MEM_CHROMA_ENABLED=false, skipping ChromaMcpManager');
       }
 
-      const modeId = settings.CLAUDE_MEM_MODE;
+      const modeId = settings.AI_MEM_MODE;
       ModeManager.getInstance().loadMode(modeId);
       logger.info('SYSTEM', `Mode loaded: ${modeId}`);
 

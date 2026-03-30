@@ -30,20 +30,20 @@ const _dirname = getDirname();
 // to check if the user configured a custom DATA_DIR there.
 function resolveDataDir(): string {
   // 1. Environment variable (highest priority) — already handled by get()
-  if (process.env.CLAUDE_MEM_DATA_DIR) {
-    return process.env.CLAUDE_MEM_DATA_DIR;
+  if (process.env.AI_MEM_DATA_DIR) {
+    return process.env.AI_MEM_DATA_DIR;
   }
 
   // 2. Settings file at the default location
-  const defaultDataDir = join(homedir(), '.claude-mem');
+  const defaultDataDir = join(homedir(), '.ai-mem');
   const settingsPath = join(defaultDataDir, 'settings.json');
   try {
     if (existsSync(settingsPath)) {
       const { readFileSync } = require('fs');
       const raw = JSON.parse(readFileSync(settingsPath, 'utf-8'));
       const settings = raw.env ?? raw; // handle legacy nested schema
-      if (settings.CLAUDE_MEM_DATA_DIR) {
-        return settings.CLAUDE_MEM_DATA_DIR;
+      if (settings.AI_MEM_DATA_DIR) {
+        return settings.AI_MEM_DATA_DIR;
       }
     }
   } catch {

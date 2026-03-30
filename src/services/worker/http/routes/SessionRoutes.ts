@@ -25,6 +25,17 @@ import { getProcessBySession, ensureProcessExit } from '../../ProcessRegistry.js
 import { createBrainEngine, type BrainEngine } from '../../../../engine/brain/engine.js';
 import { getProjectAliases, getProjectContext } from '../../../../utils/project-name.js';
 
+/**
+ * Normalize session ID from request body.
+ * Accepts both 'sessionId' (universal) and 'contentSessionId' (platform-specific).
+ * Returns the value of whichever is present, preferring contentSessionId for backward compatibility.
+ */
+function normalizeSessionId(body: Record<string, unknown>): string | undefined {
+  if (body.contentSessionId) return body.contentSessionId as string;
+  if (body.sessionId) return body.sessionId as string;
+  return undefined;
+}
+
 export class SessionRoutes extends BaseRouteHandler {
   private completionHandler: SessionCompletionHandler;
   private spawnInProgress = new Map<number, boolean>();
@@ -88,7 +99,7 @@ export class SessionRoutes extends BaseRouteHandler {
         logger.debug('SESSION', 'Using OpenRouter agent');
         return this.openRouterAgent;
       } else {
-        throw new Error('OpenRouter provider selected but no API key configured. Set CLAUDE_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
+        throw new Error('OpenRouter provider selected but no API key configured. Set AI_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
       }
     }
     if (isGeminiSelected()) {
@@ -96,7 +107,7 @@ export class SessionRoutes extends BaseRouteHandler {
         logger.debug('SESSION', 'Using Gemini agent');
         return this.geminiAgent;
       } else {
-        throw new Error('Gemini provider selected but no API key configured. Set CLAUDE_MEM_GEMINI_API_KEY in settings or GEMINI_API_KEY environment variable.');
+        throw new Error('Gemini provider selected but no API key configured. Set AI_MEM_GEMINI_API_KEY in settings or GEMINI_API_KEY environment variable.');
       }
     }
     return this.sdkAgent;
@@ -455,20 +466,21 @@ export class SessionRoutes extends BaseRouteHandler {
   });
 
   /**
-   * Queue observations by contentSessionId (post-tool-use-hook uses this)
+   * Queue observations by sessionId (post-tool-use-hook uses this)
    * POST /api/sessions/observations
-   * Body: { contentSessionId, tool_name, tool_input, tool_response, cwd }
+   * Body: { sessionId | contentSessionId, tool_name, tool_input, tool_response, cwd }
    */
   private handleObservationsByClaudeId = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
-    const { contentSessionId, tool_name, tool_input, tool_response, cwd } = req.body;
+    const contentSessionId = normalizeSessionId(req.body);
+    const { tool_name, tool_input, tool_response, cwd } = req.body;
 
     if (!contentSessionId) {
-      return this.badRequest(res, 'Missing contentSessionId');
+      return this.badRequest(res, 'Missing sessionId (or contentSessionId for backward compatibility)');
     }
 
     // Load skip tools from settings
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const skipTools = new Set(settings.CLAUDE_MEM_SKIP_TOOLS.split(',').map(t => t.trim()).filter(Boolean));
+    const skipTools = new Set(settings.AI_MEM_SKIP_TOOLS.split(',').map(t => t.trim()).filter(Boolean));
 
     // Skip low-value or meta tools
     if (skipTools.has(tool_name)) {
@@ -574,17 +586,18 @@ export class SessionRoutes extends BaseRouteHandler {
   });
 
   /**
-   * Queue summarize by contentSessionId (summary-hook uses this)
+   * Queue summarize by sessionId (summary-hook uses this)
    * POST /api/sessions/summarize
-   * Body: { contentSessionId, last_assistant_message }
+   * Body: { sessionId | contentSessionId, last_assistant_message }
    *
    * Checks privacy, queues summarize request for SDK agent
    */
   private handleSummarizeByClaudeId = this.wrapHandler((req: Request, res: Response): void => {
-    const { contentSessionId, last_assistant_message } = req.body;
+    const contentSessionId = normalizeSessionId(req.body);
+    const { last_assistant_message } = req.body;
 
     if (!contentSessionId) {
-      return this.badRequest(res, 'Missing contentSessionId');
+      return this.badRequest(res, 'Missing sessionId (or contentSessionId for backward compatibility)');
     }
 
     const store = this.dbManager.getSessionStore();
@@ -626,15 +639,15 @@ export class SessionRoutes extends BaseRouteHandler {
    * Removes session from active sessions map, allowing orphan reaper to
    * clean up any remaining subprocesses.
    *
-   * Fixes Issue #842: Sessions stay in map forever, reaper thinks all active.
-   */
+    * Fixes Issue #842: Sessions stay in map forever, reaper thinks all active.
+    */
   private handleCompleteByClaudeId = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
-    const { contentSessionId } = req.body;
+    const contentSessionId = normalizeSessionId(req.body);
 
     logger.info('HTTP', '→ POST /api/sessions/complete', { contentSessionId });
 
     if (!contentSessionId) {
-      return this.badRequest(res, 'Missing contentSessionId');
+      return this.badRequest(res, 'Missing sessionId (or contentSessionId for backward compatibility)');
     }
 
     const store = this.dbManager.getSessionStore();
@@ -669,7 +682,7 @@ export class SessionRoutes extends BaseRouteHandler {
   /**
    * Initialize session by contentSessionId (new-hook uses this)
    * POST /api/sessions/init
-   * Body: { contentSessionId, project, prompt }
+   * Body: { sessionId | contentSessionId, project, prompt }
    *
    * Performs all session initialization DB operations:
    * - Creates/gets SDK session (idempotent)
@@ -677,16 +690,20 @@ export class SessionRoutes extends BaseRouteHandler {
    * - Saves user prompt (with privacy tag stripping)
    *
    * Returns: { sessionDbId, promptNumber, skipped: boolean, reason?: string }
-   */
+    */
   private handleSessionInitByClaudeId = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
-    const { contentSessionId } = req.body;
+    const contentSessionId = normalizeSessionId(req.body);
 
-    // Only contentSessionId is truly required — Cursor and other platforms
+    if (!contentSessionId) {
+      return this.badRequest(res, 'Missing sessionId (or contentSessionId for backward compatibility)');
+    }
+
+    // Only sessionId/contentSessionId is truly required — Cursor and other platforms
     // may omit prompt/project in their payload (#838, #1049)
-    const project = req.body.project || 'unknown';
-    const prompt = req.body.prompt || '[media prompt]';
-    const customTitle = req.body.customTitle || undefined;
-    const platform = req.body.platform;
+    const project = (req.body.project as string) || 'unknown';
+    const prompt = (req.body.prompt as string) || '[media prompt]';
+    const customTitle = req.body.customTitle as string | undefined;
+    const platform = req.body.platform as string | undefined;
 
     logger.info('HTTP', 'SessionRoutes: handleSessionInitByClaudeId called', {
       contentSessionId,

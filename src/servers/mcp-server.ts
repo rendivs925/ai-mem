@@ -150,6 +150,59 @@ async function verifyWorkerConnection(): Promise<boolean> {
  */
 const tools = [
   {
+    name: 'capabilities',
+    description: 'Get ai-mem capabilities and available tools. Returns version, endpoints, and supported platforms.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    },
+    handler: async () => {
+      try {
+        const response = await workerHttpRequest('/api/capabilities');
+        const data = await response.json() as {
+          version: string;
+          description: string;
+          platforms: string[];
+          endpoints: Record<string, { method: string; path: string; description: string }>;
+          protocols: string[];
+          defaultPort: number;
+        };
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `# ai-mem Capabilities
+
+**Version:** ${data.version}
+**Description:** ${data.description}
+
+## Supported Platforms
+${data.platforms.join(', ')}
+
+## Available Endpoints
+${Object.entries(data.endpoints).map(([name, info]) => 
+  `- ${name}: ${info.method} ${info.path} — ${info.description}`
+).join('\n')}
+
+## Protocols
+${data.protocols.join(', ')}
+
+## Default Port
+${data.defaultPort}
+`
+          }]
+        };
+      } catch (error) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Error fetching capabilities: ${error instanceof Error ? error.message : String(error)}`
+          }],
+          isError: true
+        };
+      }
+    }
+  },
+  {
     name: '__IMPORTANT',
     description: `3-LAYER WORKFLOW (ALWAYS FOLLOW):
 1. search(query) → Get index with IDs (~50-100 tokens/result)

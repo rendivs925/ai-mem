@@ -168,7 +168,7 @@ export class Server {
         version: BUILT_IN_VERSION,
         workerPath: this.options.workerPath,
         uptime: Date.now() - this.startTime,
-        managed: process.env.CLAUDE_MEM_MANAGED === 'true',
+        managed: process.env.AI_MEM_MANAGED === 'true',
         hasIpc: typeof process.send === 'function',
         platform: process.platform,
         pid: process.pid,
@@ -196,6 +196,39 @@ export class Server {
     // Version endpoint - returns the worker's built-in version
     this.app.get('/api/version', (_req: Request, res: Response) => {
       res.status(200).json({ version: BUILT_IN_VERSION });
+    });
+
+    // Capabilities endpoint - machine-readable contract for AI tool integrations
+    this.app.get('/api/capabilities', (_req: Request, res: Response) => {
+      res.status(200).json({
+        name: 'ai-mem',
+        version: BUILT_IN_VERSION,
+        description: 'Brain-inspired persistent memory for AI coding agents',
+        endpoints: {
+          health: { path: '/api/health', method: 'GET', description: 'Liveness check' },
+          readiness: { path: '/api/readiness', method: 'GET', description: 'Initialization status' },
+          version: { path: '/api/version', method: 'GET', description: 'Worker version' },
+          search: { path: '/api/search', method: 'GET', description: 'Unified memory search' },
+          timeline: { path: '/api/timeline', method: 'GET', description: 'Context timeline' },
+          decisions: { path: '/api/decisions', method: 'GET', description: 'Decision memories' },
+          changes: { path: '/api/changes', method: 'GET', description: 'Change memories' },
+          contextRecent: { path: '/api/context/recent', method: 'GET', description: 'Recent context' },
+          contextInject: { path: '/api/context/inject', method: 'GET', description: 'Context injection' },
+          sessionInit: { path: '/api/sessions/init', method: 'POST', description: 'Initialize session' },
+          sessionObservations: { path: '/api/sessions/observations', method: 'POST', description: 'Queue observations' },
+          sessionSummarize: { path: '/api/sessions/summarize', method: 'POST', description: 'Queue summary' },
+          sessionComplete: { path: '/api/sessions/complete', method: 'POST', description: 'Complete session' },
+          memorySave: { path: '/api/memory/save', method: 'POST', description: 'Save manual memory' },
+          observations: { path: '/api/observations', method: 'GET', description: 'List observations' },
+          summaries: { path: '/api/summaries', method: 'GET', description: 'List summaries' },
+          stats: { path: '/api/stats', method: 'GET', description: 'Memory statistics' },
+          settings: { path: '/api/settings', method: 'GET', description: 'Get settings' },
+        },
+        protocols: ['http', 'mcp'],
+        platforms: ['claude-code', 'cursor', 'gemini-cli', 'opencode', 'codex', 'generic'],
+        dataDir: process.env.AI_MEM_DATA_DIR || '~/.ai-mem',
+        defaultPort: 37777,
+      });
     });
 
     // Instructions endpoint - loads SKILL.md sections on-demand
@@ -243,7 +276,7 @@ export class Server {
 
       // Handle Windows managed mode via IPC
       const isWindowsManaged = process.platform === 'win32' &&
-        process.env.CLAUDE_MEM_MANAGED === 'true' &&
+        process.env.AI_MEM_MANAGED === 'true' &&
         process.send;
 
       if (isWindowsManaged) {
@@ -268,7 +301,7 @@ export class Server {
 
       // Handle Windows managed mode via IPC
       const isWindowsManaged = process.platform === 'win32' &&
-        process.env.CLAUDE_MEM_MANAGED === 'true' &&
+        process.env.AI_MEM_MANAGED === 'true' &&
         process.send;
 
       if (isWindowsManaged) {

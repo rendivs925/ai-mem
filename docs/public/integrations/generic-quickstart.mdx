@@ -1,0 +1,158 @@
+---
+title: Generic Integration
+description: Connect any AI coding tool to ai-mem using HTTP
+icon: plug
+---
+
+<Note>
+**Target Audience:** Developers integrating ai-mem with Codex, Zed, Windsurf, or any custom AI coding tool
+</Note>
+
+## Quick Start (30 seconds)
+
+```bash
+# 1. Start the worker (if not running)
+bun plugin/scripts/worker-service.cjs start
+
+# 2. Verify it's running
+curl http://localhost:37777/api/health
+
+# 3. Check capabilities
+curl http://localhost:37777/api/capabilities
+```
+
+## Integration Options
+
+### Option 1: HTTP API (Recommended)
+
+The worker exposes REST endpoints at `http://localhost:37777`:
+
+```typescript
+import { AiMemClient } from 'ai-mem/sdk/client';
+
+const client = new AiMemClient({ port: 37777 });
+
+// Search memories
+const results = await client.search({ query: 'authentication', limit: 10 });
+
+// Inject context into your AI
+const context = await client.injectContext({
+  projects: ['my-project'],
+  colors: true
+});
+
+// Save a memory
+await client.saveMemory({
+  text: 'User prefers TypeScript over JavaScript',
+  title: 'Language preference',
+  project: 'my-project'
+});
+```
+
+### Option 2: MCP Server
+
+If your tool supports Model Context Protocol:
+
+```json
+{
+  "mcpServers": {
+    "ai-mem": {
+      "command": "node",
+      "args": ["~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs"]
+    }
+  }
+}
+```
+
+### Option 3: CLI Hooks
+
+For tools with hook support, invoke the CLI:
+
+```bash
+# Session start
+bun worker-service.cjs hook <platform> SessionStart < session.json
+
+# After tool use  
+bun worker-service.cjs hook <platform> PostToolUse < tool-result.json
+
+# Session end
+bun worker-service.cjs hook <platform> Stop < summary.json
+```
+
+## Session Lifecycle
+
+```
+┌─────────────┐
+│ SessionInit │  POST /api/sessions/init { sessionId, project, prompt }
+└──────┬──────┘
+       │
+       ▼
+┌──────────────┐    ┌──────────────┐
+│ PostToolUse  │───►│ Observations │  POST /api/sessions/observations
+└──────────────┘    └──────┬───────┘
+                         │
+                         ▼
+                   ┌──────────────┐
+                   │   Summarize  │  POST /api/sessions/summarize
+                   └──────┬───────┘
+                         │
+                         ▼
+┌─────────────┐    ┌──────────────┐
+│ SessionStop │───►│    Complete  │  POST /api/sessions/complete
+└─────────────┘    └──────────────┘
+```
+
+## Universal Request Format
+
+All session endpoints accept either `sessionId` (recommended) or `contentSessionId` (legacy):
+
+```json
+{
+  "sessionId": "unique-session-identifier",
+  "project": "my-project",
+  "prompt": "What does this code do?"
+}
+```
+
+## Environment Variables
+
+```bash
+CLAUDE_MEM_WORKER_PORT=37777    # Worker port (default: 37777)
+CLAUDE_MEM_WORKER_HOST=127.0.0.1 # Worker host (default: 127.0.0.1)
+CLAUDE_MEM_DATA_DIR=~/.claude-mem # Data directory
+```
+
+## Tools Reference
+
+| Operation | Endpoint | Method |
+|-----------|----------|--------|
+| Health check | `/api/health` | GET |
+| Capabilities | `/api/capabilities` | GET |
+| Search | `/api/search` | GET |
+| Timeline | `/api/timeline` | GET |
+| Recent context | `/api/context/recent` | GET |
+| Inject context | `/api/context/inject` | GET |
+| Init session | `/api/sessions/init` | POST |
+| Queue observation | `/api/sessions/observations` | POST |
+| Queue summary | `/api/sessions/summarize` | POST |
+| Complete session | `/api/sessions/complete` | POST |
+| Save memory | `/api/memory/save` | POST |
+| Get stats | `/api/stats` | GET |
+
+## Error Handling
+
+Worker unavailable returns exit code 0 (graceful degradation):
+
+```typescript
+try {
+  await client.search({ query: 'test' });
+} catch (error) {
+  // Worker not running - skip gracefully
+  console.log('Memory unavailable, continuing without context');
+}
+```
+
+## Next Steps
+
+- [Platform Integration](/public/platform-integration) - Full API reference
+- [Configuration](/public/configuration) - Settings and environment variables

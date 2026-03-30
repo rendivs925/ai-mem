@@ -6,16 +6,16 @@ import { SettingsDefaultsManager } from "./SettingsDefaultsManager.js";
 import { MARKETPLACE_ROOT } from "./paths.js";
 
 // Named constants for health checks
-// Allow env var override for users on slow systems (e.g., CLAUDE_MEM_HEALTH_TIMEOUT_MS=10000)
+// Allow env var override for users on slow systems (e.g., AI_MEM_HEALTH_TIMEOUT_MS=10000)
 const HEALTH_CHECK_TIMEOUT_MS = (() => {
-  const envVal = process.env.CLAUDE_MEM_HEALTH_TIMEOUT_MS;
+  const envVal = process.env.AI_MEM_HEALTH_TIMEOUT_MS;
   if (envVal) {
     const parsed = parseInt(envVal, 10);
     if (Number.isFinite(parsed) && parsed >= 500 && parsed <= 300000) {
       return parsed;
     }
     // Invalid env var — log once and use default
-    logger.warn('SYSTEM', 'Invalid CLAUDE_MEM_HEALTH_TIMEOUT_MS, using default', {
+    logger.warn('SYSTEM', 'Invalid AI_MEM_HEALTH_TIMEOUT_MS, using default', {
       value: envVal, min: 500, max: 300000
     });
   }
@@ -47,7 +47,7 @@ let cachedHost: string | null = null;
 
 /**
  * Get the worker port number from settings
- * Uses CLAUDE_MEM_WORKER_PORT from settings file or default (37777)
+ * Uses AI_MEM_WORKER_PORT from settings file or default (37777)
  * Caches the port value to avoid repeated file reads
  */
 export function getWorkerPort(): number {
@@ -55,15 +55,15 @@ export function getWorkerPort(): number {
     return cachedPort;
   }
 
-  const settingsPath = path.join(SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR'), 'settings.json');
+  const settingsPath = path.join(SettingsDefaultsManager.get('AI_MEM_DATA_DIR'), 'settings.json');
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  cachedPort = parseInt(settings.CLAUDE_MEM_WORKER_PORT, 10);
+  cachedPort = parseInt(settings.AI_MEM_WORKER_PORT, 10);
   return cachedPort;
 }
 
 /**
  * Get the worker host address
- * Uses CLAUDE_MEM_WORKER_HOST from settings file or default (127.0.0.1)
+ * Uses AI_MEM_WORKER_HOST from settings file or default (127.0.0.1)
  * Caches the host value to avoid repeated file reads
  */
 export function getWorkerHost(): string {
@@ -71,9 +71,9 @@ export function getWorkerHost(): string {
     return cachedHost;
   }
 
-  const settingsPath = path.join(SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR'), 'settings.json');
+  const settingsPath = path.join(SettingsDefaultsManager.get('AI_MEM_DATA_DIR'), 'settings.json');
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  cachedHost = settings.CLAUDE_MEM_WORKER_HOST;
+  cachedHost = settings.AI_MEM_WORKER_HOST;
   return cachedHost;
 }
 

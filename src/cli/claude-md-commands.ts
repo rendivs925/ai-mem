@@ -27,8 +27,8 @@ import { formatTime, groupByDate } from '../shared/timeline-formatting.js';
 import { isDirectChild } from '../shared/path-utils.js';
 import { logger } from '../utils/logger.js';
 
-const DB_PATH = path.join(os.homedir(), '.claude-mem', 'claude-mem.db');
-const SETTINGS_PATH = path.join(os.homedir(), '.claude-mem', 'settings.json');
+const DB_PATH = path.join(os.homedir(), '.ai-mem', 'claude-mem.db');
+const SETTINGS_PATH = path.join(os.homedir(), '.ai-mem', 'settings.json');
 
 interface ObservationRow {
   id: number;
@@ -111,7 +111,7 @@ function walkDirectoriesWithIgnore(dir: string, folders: Set<string>, depth: num
   const ignorePatterns = [
     'node_modules', '.git', '.next', 'dist', 'build', '.cache',
     '__pycache__', '.venv', 'venv', '.idea', '.vscode', 'coverage',
-    '.claude-mem', '.open-next', '.turbo'
+    '.ai-mem', '.open-next', '.turbo'
   ];
 
   try {
@@ -281,7 +281,7 @@ function writeClaudeMdToFolder(folderPath: string, newContent: string): void {
     existingContent = readFileSync(claudeMdPath, 'utf-8');
   }
 
-  const startTag = '<claude-mem-context>';
+  const startTag = '<ai-mem-context>';
   const endTag = '</claude-mem-context>';
 
   let finalContent: string;
@@ -357,7 +357,7 @@ export async function generateClaudeMd(dryRun: boolean): Promise<number> {
   try {
     const workingDir = process.cwd();
     const settings = SettingsDefaultsManager.loadFromFile(SETTINGS_PATH);
-    const observationLimit = parseInt(settings.CLAUDE_MEM_CONTEXT_OBSERVATIONS, 10) || 50;
+    const observationLimit = parseInt(settings.AI_MEM_CONTEXT_OBSERVATIONS, 10) || 50;
 
     logger.info('CLAUDE_MD', 'Starting CLAUDE.md generation', {
       workingDir,
@@ -438,7 +438,7 @@ export async function generateClaudeMd(dryRun: boolean): Promise<number> {
 /**
  * Clean up auto-generated CLAUDE.md files.
  *
- * For each file with <claude-mem-context> tags:
+ * For each file with <ai-mem-context> tags:
  * - Strip the tagged section
  * - If empty after stripping, delete the file
  * - If has remaining content, save the stripped version
@@ -461,7 +461,7 @@ export async function cleanClaudeMd(dryRun: boolean): Promise<number> {
       const ignorePatterns = [
         'node_modules', '.git', '.next', 'dist', 'build', '.cache',
         '__pycache__', '.venv', 'venv', '.idea', '.vscode', 'coverage',
-        '.claude-mem', '.open-next', '.turbo'
+        '.ai-mem', '.open-next', '.turbo'
       ];
 
       try {
@@ -476,7 +476,7 @@ export async function cleanClaudeMd(dryRun: boolean): Promise<number> {
           } else if (entry.name === 'CLAUDE.md') {
             try {
               const content = readFileSync(fullPath, 'utf-8');
-              if (content.includes('<claude-mem-context>')) {
+              if (content.includes('<ai-mem-context>')) {
                 filesToProcess.push(fullPath);
               }
             } catch {
@@ -507,7 +507,7 @@ export async function cleanClaudeMd(dryRun: boolean): Promise<number> {
 
       try {
         const content = readFileSync(file, 'utf-8');
-        const stripped = content.replace(/<claude-mem-context>[\s\S]*?<\/claude-mem-context>/g, '').trim();
+        const stripped = content.replace(/<ai-mem-context>[\s\S]*?<\/claude-mem-context>/g, '').trim();
 
         if (stripped === '') {
           if (!dryRun) {
