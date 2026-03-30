@@ -195,7 +195,7 @@ export class SearchRoutes extends BaseRouteHandler {
    */
   private handleSearchHelp = this.wrapHandler((req: Request, res: Response): void => {
     res.json({
-      title: 'Claude-Mem Search API',
+      title: 'ai-mem Search API',
       description: 'HTTP API for searching persistent memory',
       endpoints: [
         {
@@ -253,7 +253,7 @@ export class SearchRoutes extends BaseRouteHandler {
       examples: [
         'curl "http://localhost:37777/api/search?query=authentication&type=observations&limit=5"',
         'curl "http://localhost:37777/api/search?type=observations&obs_type=bugfix&limit=10"',
-        'curl "http://localhost:37777/api/context/recent?project=claude-mem&limit=3"',
+        'curl "http://localhost:37777/api/context/recent?project=my-project&limit=3"',
         'curl "http://localhost:37777/api/context/timeline?anchor=123&depth_before=5&depth_after=5"'
       ]
     });

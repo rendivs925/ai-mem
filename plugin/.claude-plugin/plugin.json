@@ -1,11 +1,11 @@
 {
-  "name": "claude-mem",
+  "name": "ai-mem",
   "version": "10.6.2",
-  "description": "Persistent memory system for Claude Code - seamlessly preserve context across sessions",
+  "description": "Persistent memory system for AI coding tools with shared project-aware context",
   "author": {
     "name": "Alex Newman"
   },
-  "repository": "https://github.com/thedotmack/claude-mem",
+  "repository": "https://github.com/rendivs925/ai-mem",
   "license": "AGPL-3.0",
   "keywords": [
     "memory",

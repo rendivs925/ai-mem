@@ -1,5 +1,5 @@
 /**
- * SearchManager - Core search orchestration for claude-mem
+ * SearchManager - Core search orchestration for ai-mem
  *
  * Coordinates search, timeline, and brain-memory retrieval for the worker API.
  */
