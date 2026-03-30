@@ -23,11 +23,11 @@ import {
 } from 'fs';
 import { execSync } from 'child_process';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
+import { DB_PATH } from '../shared/paths.js';
 import { formatTime, groupByDate } from '../shared/timeline-formatting.js';
 import { isDirectChild } from '../shared/path-utils.js';
 import { logger } from '../utils/logger.js';
 
-const DB_PATH = path.join(os.homedir(), '.ai-mem', 'claude-mem.db');
 const SETTINGS_PATH = path.join(os.homedir(), '.ai-mem', 'settings.json');
 
 interface ObservationRow {

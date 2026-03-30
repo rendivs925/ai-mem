@@ -1,6 +1,6 @@
 import { join, dirname, basename, sep } from 'path';
 import { homedir } from 'os';
-import { existsSync, mkdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { SettingsDefaultsManager } from './SettingsDefaultsManager.js';
@@ -68,8 +68,60 @@ export const TRASH_DIR = join(DATA_DIR, 'trash');
 export const BACKUPS_DIR = join(DATA_DIR, 'backups');
 export const MODES_DIR = join(DATA_DIR, 'modes');
 export const USER_SETTINGS_PATH = join(DATA_DIR, 'settings.json');
-export const DB_PATH = join(DATA_DIR, 'claude-mem.db');
+export const DB_PATH = join(DATA_DIR, 'ai-mem.db');
 export const VECTOR_DB_DIR = join(DATA_DIR, 'vector-db');
+
+const LEGACY_DB_PATHS = [
+  join(DATA_DIR, 'claude-mem.db'),
+  join(homedir(), '.claude-mem', 'claude-mem.db'),
+];
+
+function sidecarPaths(dbPath: string): string[] {
+  return [`${dbPath}-wal`, `${dbPath}-shm`];
+}
+
+function moveOrCopyDbBundle(source: string, target: string): void {
+  const sourceDir = dirname(source);
+  const targetDir = dirname(target);
+  const related = [source, ...sidecarPaths(source)];
+
+  for (const item of related) {
+    if (!existsSync(item)) continue;
+    const destination = join(targetDir, basename(item).replace(basename(source), basename(target)));
+    if (sourceDir === targetDir) {
+      renameSync(item, destination);
+      continue;
+    }
+    copyFileSync(item, destination);
+  }
+}
+
+export function ensureCanonicalDbPath(): string {
+  if (existsSync(DB_PATH)) {
+    return DB_PATH;
+  }
+
+  ensureDir(DATA_DIR);
+
+  for (const legacyPath of LEGACY_DB_PATHS) {
+    if (!existsSync(legacyPath)) continue;
+    try {
+      moveOrCopyDbBundle(legacyPath, DB_PATH);
+      logger.info('DB', 'Migrated legacy database to canonical ai-mem path', {
+        from: legacyPath,
+        to: DB_PATH,
+      });
+      return DB_PATH;
+    } catch (error) {
+      logger.warn('DB', 'Failed to migrate legacy database, continuing with canonical path', {
+        from: legacyPath,
+        to: DB_PATH,
+      }, error as Error);
+    }
+  }
+
+  return DB_PATH;
+}
 
 // Observer sessions directory - used as cwd for SDK queries
 // Sessions here won't appear in user's `claude --resume` for their actual projects

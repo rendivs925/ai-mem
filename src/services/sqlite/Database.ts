@@ -3,7 +3,7 @@ import { execFileSync } from 'child_process';
 import { existsSync, unlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { DATA_DIR, DB_PATH, ensureDir } from '../../shared/paths.js';
+import { DATA_DIR, DB_PATH, ensureCanonicalDbPath, ensureDir } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import { MigrationRunner } from './migrations/runner.js';
 
@@ -149,6 +149,7 @@ export class AiMemDatabase {
     // Ensure data directory exists (skip for in-memory databases)
     if (dbPath !== ':memory:') {
       ensureDir(DATA_DIR);
+      dbPath = ensureCanonicalDbPath();
     }
 
     // Create database connection

@@ -19,6 +19,7 @@ import { SSEBroadcaster } from '../../SSEBroadcaster.js';
 import type { WorkerService } from '../../../worker-service.js';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { createBrainEngine } from '../../../../engine/brain/engine.js';
+import { DB_PATH } from '../../../../shared/paths.js';
 
 export class DataRoutes extends BaseRouteHandler {
   constructor(
@@ -492,7 +493,7 @@ export class DataRoutes extends BaseRouteHandler {
     const totalSummaries = db.prepare('SELECT COUNT(*) as count FROM session_summaries').get() as { count: number };
 
     // Get database file size and path
-    const dbPath = path.join(homedir(), '.ai-mem', 'claude-mem.db');
+    const dbPath = DB_PATH;
     let dbSize = 0;
     if (existsSync(dbPath)) {
       dbSize = statSync(dbPath).size;

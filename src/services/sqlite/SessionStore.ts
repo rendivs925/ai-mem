@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { DATA_DIR, DB_PATH, ensureDir } from '../../shared/paths.js';
+import { DATA_DIR, DB_PATH, ensureCanonicalDbPath, ensureDir } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import {
   TableColumnInfo,
@@ -25,6 +25,7 @@ export class SessionStore {
   constructor(dbPath: string = DB_PATH) {
     if (dbPath !== ':memory:') {
       ensureDir(DATA_DIR);
+      dbPath = ensureCanonicalDbPath();
     }
     this.db = new Database(dbPath);
 
