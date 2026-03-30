@@ -165,7 +165,7 @@ async function getDatabaseInfo(
   dataDir: string
 ): Promise<{ exists: boolean; size?: number }> {
   try {
-    const dbPath = path.join(dataDir, "claude-mem.db");
+    const dbPath = path.join(dataDir, "ai-mem.db");
     const stats = await fs.stat(dbPath);
     return { exists: true, size: stats.size };
   } catch (error) {
@@ -177,7 +177,7 @@ async function getTableCounts(
   dataDir: string
 ): Promise<{ observations: number; sessions: number; summaries: number } | undefined> {
   try {
-    const dbPath = path.join(dataDir, "claude-mem.db");
+    const dbPath = path.join(dataDir, "ai-mem.db");
     await fs.stat(dbPath);
 
     const query =
@@ -205,7 +205,7 @@ export async function collectDiagnostics(
   options: { includeLogs?: boolean } = {}
 ): Promise<SystemDiagnostics> {
   const homeDir = os.homedir();
-  const dataDir = path.join(homeDir, ".claude-mem");
+  const dataDir = path.join(homeDir, ".ai-mem");
   const pluginPath = path.join(
     homeDir,
     ".claude",
@@ -289,7 +289,7 @@ export async function collectDiagnostics(
     getTableCounts(dataDir),
   ]);
   const database = {
-    path: sanitizePath(path.join(dataDir, "claude-mem.db")),
+    path: sanitizePath(path.join(dataDir, "ai-mem.db")),
     exists: dbInfo.exists,
     size: dbInfo.size,
     counts: tableCounts,

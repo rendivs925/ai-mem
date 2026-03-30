@@ -23,8 +23,8 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync, unlinkS
 import { execSync } from 'child_process';
 import { SettingsDefaultsManager } from '../src/shared/SettingsDefaultsManager.js';
 
-const DB_PATH = path.join(os.homedir(), '.claude-mem', 'claude-mem.db');
-const SETTINGS_PATH = path.join(os.homedir(), '.claude-mem', 'settings.json');
+const DB_PATH = path.join(os.homedir(), '.ai-mem', 'ai-mem.db');
+const SETTINGS_PATH = path.join(os.homedir(), '.ai-mem', 'settings.json');
 const settings = SettingsDefaultsManager.loadFromFile(SETTINGS_PATH);
 const OBSERVATION_LIMIT = parseInt(settings.CLAUDE_MEM_CONTEXT_OBSERVATIONS, 10) || 50;
 

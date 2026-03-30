@@ -43,7 +43,7 @@ import { globSync } from 'glob';
 // =============================================================================
 
 // Configuration
-const DB_PATH = path.join(homedir(), '.claude-mem', 'claude-mem.db');
+const DB_PATH = path.join(homedir(), '.ai-mem', 'ai-mem.db');
 const MAX_TRANSCRIPTS = parseInt(process.env.MAX_TRANSCRIPTS || '500', 10);
 
 // Find transcript files (most recent first)

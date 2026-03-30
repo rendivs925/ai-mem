@@ -76,14 +76,14 @@ Wait for user confirmation before continuing if the timeline exceeds 100K tokens
 
 ### Step 4: Analyze with a Subagent
 
-Deploy an Agent (using the Task tool) with the full timeline and the following analysis prompt. Pass the ENTIRE timeline as context to the agent. The agent should also be instructed to query the SQLite database at `~/.claude-mem/claude-mem.db` for the Token Economics section.
+Deploy an Agent (using the Task tool) with the full timeline and the following analysis prompt. Pass the ENTIRE timeline as context to the agent. The agent should also be instructed to query the SQLite database at `~/.ai-mem/ai-mem.db` for the Token Economics section.
 
 **Agent prompt:**
 
 ```
 You are a technical historian analyzing a software project's complete development timeline from claude-mem's persistent memory system. The timeline below contains every observation, session boundary, and summary recorded across the project's entire history.
 
-You also have access to the claude-mem SQLite database at ~/.claude-mem/claude-mem.db. Use it to run queries for the Token Economics & Memory ROI section. The database has an "observations" table with columns: id, memory_session_id, project, text, type, title, subtitle, facts, narrative, concepts, files_read, files_modified, prompt_number, discovery_tokens, created_at, created_at_epoch, source_tool, source_input_summary.
+You also have access to the ai-mem SQLite database at ~/.ai-mem/ai-mem.db. Use it to run queries for the Token Economics & Memory ROI section. The database has an "observations" table with columns: id, memory_session_id, project, text, type, title, subtitle, facts, narrative, concepts, files_read, files_modified, prompt_number, discovery_tokens, created_at, created_at_epoch, source_tool, source_input_summary.
 
 Write a comprehensive narrative report titled "Journey Into [PROJECT_NAME]" that covers:
 
@@ -104,7 +104,7 @@ Write a comprehensive narrative report titled "Journey Into [PROJECT_NAME]" that
 7. **Memory and Continuity** -- How did persistent memory (claude-mem itself, if applicable) affect the development process? Were there moments where recalled context from prior sessions saved significant time or prevented repeated mistakes?
 
 8. **Token Economics & Memory ROI** -- Quantitative analysis of how memory recall saved work:
-   - Query the database directly for these metrics using `sqlite3 ~/.claude-mem/claude-mem.db`
+   - Query the database directly for these metrics using `sqlite3 ~/.ai-mem/ai-mem.db`
    - Count total discovery_tokens across all observations (the original cost of all work)
    - Count sessions that had context injection available (sessions after the first)
    - Calculate the compression ratio: average discovery_tokens vs average read_tokens per observation
