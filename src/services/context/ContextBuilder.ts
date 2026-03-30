@@ -79,7 +79,8 @@ function buildContextOutput(
   project: string,
   observations: Observation[],
   summaries: SessionSummary[],
-  longTermMemories: Array<{ tier: string; title: string; narrative: string }>,
+  committedMemories: Array<{ tier: string; title: string; narrative: string }>,
+  episodicMemories: Array<{ tier: string; title: string; narrative: string }>,
   config: ContextConfig,
   cwd: string,
   sessionId: string | undefined,
@@ -110,11 +111,24 @@ function buildContextOutput(
     output.push(...renderSummaryFields(mostRecentSummary, useColors));
   }
 
-  if (longTermMemories.length > 0) {
-    output.push(useColors ? 'Long-Term Brain Memory' : '## Long-Term Brain Memory');
+  if (committedMemories.length > 0) {
+    output.push(useColors ? 'Committed Project Memory' : '## Committed Project Memory');
     output.push('');
-    for (const memory of longTermMemories.slice(0, 6)) {
+    output.push(
+      'Use these as stable project knowledge and established workflows. Prefer them over raw historical detail unless you need provenance.'
+    );
+    output.push('');
+    for (const memory of committedMemories.slice(0, 6)) {
       output.push(`- [${memory.tier}] ${memory.title}: ${memory.narrative.slice(0, 180)}`);
+    }
+    output.push('');
+  }
+
+  if (episodicMemories.length > 0) {
+    output.push(useColors ? 'Relevant Episodic Evidence' : '## Relevant Episodic Evidence');
+    output.push('');
+    for (const memory of episodicMemories.slice(0, 3)) {
+      output.push(`- [${memory.tier}] ${memory.title}: ${memory.narrative.slice(0, 140)}`);
     }
     output.push('');
   }
@@ -170,11 +184,11 @@ export async function generateContext(
     const summaries = projects.length > 1
       ? querySummariesMulti(db, projects, config)
       : querySummaries(db, project, config);
-    const longTermMemories = await brainEngine.retrieveMemories(
+    const committedMemories = await brainEngine.retrieveMemories(
       '',
       {
         projects,
-        tiers: [MemoryTier.Semantic, MemoryTier.Procedural, MemoryTier.Episodic],
+        tiers: [MemoryTier.Semantic, MemoryTier.Procedural],
       },
       8,
     ).then((results) =>
@@ -184,9 +198,23 @@ export async function generateContext(
         narrative: result.cmu.content.narrative,
       })),
     );
+    const episodicMemories = await brainEngine.retrieveMemories(
+      '',
+      {
+        projects,
+        tiers: [MemoryTier.Episodic],
+      },
+      4,
+    ).then((results) =>
+      results.map((result) => ({
+        tier: result.cmu.tier,
+        title: result.cmu.content.title,
+        narrative: result.cmu.content.narrative,
+      })),
+    );
 
     // Handle empty state
-    if (observations.length === 0 && summaries.length === 0 && longTermMemories.length === 0) {
+    if (observations.length === 0 && summaries.length === 0 && committedMemories.length === 0 && episodicMemories.length === 0) {
       return renderEmptyState(project, useColors);
     }
 
@@ -195,7 +223,8 @@ export async function generateContext(
       project,
       observations,
       summaries,
-      longTermMemories,
+      committedMemories,
+      episodicMemories,
       config,
       cwd,
       input?.session_id,

@@ -131,7 +131,7 @@ export class TranscriptEventProcessor {
         this.applySessionContext(session, fields);
         break;
       case 'session_init':
-        await this.handleSessionInit(session, fields);
+        await this.handleSessionInit(session, fields, watch.name);
         if (watch.context?.updateOn?.includes('session_start')) {
           await this.updateContext(session, watch);
         }
@@ -144,10 +144,10 @@ export class TranscriptEventProcessor {
         if (typeof fields.message === 'string') session.lastAssistantMessage = fields.message;
         break;
       case 'tool_use':
-        await this.handleToolUse(session, fields);
+        await this.handleToolUse(session, fields, watch.name);
         break;
       case 'tool_result':
-        await this.handleToolResult(session, fields);
+        await this.handleToolResult(session, fields, watch.name);
         break;
       case 'observation':
         await this.sendObservation(session, fields, watch.name);
@@ -170,7 +170,7 @@ export class TranscriptEventProcessor {
     if (project) session.project = project;
   }
 
-  private async handleSessionInit(session: SessionState, fields: Record<string, unknown>): Promise<void> {
+  private async handleSessionInit(session: SessionState, fields: Record<string, unknown>, platform: string): Promise<void> {
     const prompt = typeof fields.prompt === 'string' ? fields.prompt : '';
     const cwd = session.cwd ?? process.cwd();
     if (prompt) {
@@ -181,11 +181,11 @@ export class TranscriptEventProcessor {
       sessionId: session.sessionId,
       cwd,
       prompt,
-      platform: watch.name
+      platform
     });
   }
 
-  private async handleToolUse(session: SessionState, fields: Record<string, unknown>): Promise<void> {
+  private async handleToolUse(session: SessionState, fields: Record<string, unknown>, platform: string): Promise<void> {
     const toolId = typeof fields.toolId === 'string' ? fields.toolId : undefined;
     const toolName = typeof fields.toolName === 'string' ? fields.toolName : undefined;
     const toolInput = this.maybeParseJson(fields.toolInput);
@@ -203,7 +203,7 @@ export class TranscriptEventProcessor {
         await this.sendFileEdit(session, {
           filePath,
           edits: [{ type: 'apply_patch', patch: toolInput }]
-        }, 'codex');
+        }, platform);
       }
     }
 
@@ -212,11 +212,11 @@ export class TranscriptEventProcessor {
         toolName,
         toolInput,
         toolResponse
-      }, 'codex');
+      }, platform);
     }
   }
 
-  private async handleToolResult(session: SessionState, fields: Record<string, unknown>): Promise<void> {
+  private async handleToolResult(session: SessionState, fields: Record<string, unknown>, platform: string): Promise<void> {
     const toolId = typeof fields.toolId === 'string' ? fields.toolId : undefined;
     const toolName = typeof fields.toolName === 'string' ? fields.toolName : undefined;
     const toolResponse = this.maybeParseJson(fields.toolResponse);
@@ -236,7 +236,7 @@ export class TranscriptEventProcessor {
         toolName: name,
         toolInput,
         toolResponse
-      }, 'codex');
+      }, platform);
     }
   }
 

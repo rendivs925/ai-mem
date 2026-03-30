@@ -36,6 +36,10 @@ function normalizeSessionId(body: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+const NOISY_TOOLS = new Set(['read', 'glob', 'grep', 'search', 'find', 'ls', 'list', 'view']);
+const HIGH_SIGNAL_PATTERN =
+  /\b(decision|because|fix|fixed|error|failed|failure|root cause|summary|plan|architecture|workflow|remember)\b/i;
+
 export class SessionRoutes extends BaseRouteHandler {
   private completionHandler: SessionCompletionHandler;
   private spawnInProgress = new Map<number, boolean>();
@@ -84,6 +88,19 @@ export class SessionRoutes extends BaseRouteHandler {
   private sourceConcepts(platform: unknown, values: string[]): string[] {
     const source = typeof platform === 'string' && platform.trim() ? platform.trim() : 'claude-code';
     return Array.from(new Set([`source:${source}`, ...values])).slice(0, 12);
+  }
+
+  private toolKind(toolName: string): 'change' | 'discovery' {
+    const lowered = toolName.toLowerCase();
+    return lowered.includes('edit') || lowered.includes('write') ? 'change' : 'discovery';
+  }
+
+  private shouldCaptureToolMemory(toolName: string, narrative: string): boolean {
+    const lowered = toolName.toLowerCase();
+    if (this.toolKind(toolName) === 'change') return true;
+    if (narrative.trim().length < 40) return false;
+    if (NOISY_TOOLS.has(lowered)) return HIGH_SIGNAL_PATTERN.test(narrative);
+    return true;
   }
 
   /**
@@ -559,8 +576,9 @@ export class SessionRoutes extends BaseRouteHandler {
       const outputText = typeof cleanedToolResponse === 'string' ? cleanedToolResponse : JSON.stringify(cleanedToolResponse);
       const narrative = [inputText, outputText].filter(Boolean).join('\n').slice(0, 2000);
 
-      if (narrative.trim()) {
+      if (narrative.trim() && this.shouldCaptureToolMemory(tool_name, narrative)) {
         const engine = await this.getBrainEngine();
+        const kind = this.toolKind(tool_name);
         await engine.captureMemory(
           contentSessionId,
           project,
@@ -572,8 +590,8 @@ export class SessionRoutes extends BaseRouteHandler {
             filesRead: [],
             filesModified: [],
           },
-          tool_name.toLowerCase().includes('edit') || tool_name.toLowerCase().includes('write') ? 'change' : 'discovery',
-          0.65,
+          kind,
+          kind === 'change' ? 0.82 : 0.6,
         );
       }
 
