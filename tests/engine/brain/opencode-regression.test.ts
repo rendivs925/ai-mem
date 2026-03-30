@@ -340,4 +340,66 @@ describe("OpenCode brain integration regressions", () => {
     expect(titles.some((title) => title.startsWith("Knowledge:"))).toBe(true);
     expect(titles.some((title) => title.startsWith("Workflow:"))).toBe(true);
   });
+
+  it("extracts a workflow from a successful multi-step session trajectory", async () => {
+    const db = new AiMemDatabase(":memory:");
+    databases.push(db);
+
+    const engine = createBrainEngine(db.db);
+    await engine.initialize();
+
+    await engine.captureMemory(
+      "session-20",
+      "project-a",
+      {
+        title: "Procedure: /inspect",
+        narrative: "Inspect parser and identify the failing branch",
+        facts: ["inspect parser"],
+        concepts: ["inspect", "parser", "workflow"],
+        filesRead: ["src/parser.ts"],
+        filesModified: [],
+      },
+      "discovery",
+      0.72,
+    );
+
+    await engine.captureMemory(
+      "session-20",
+      "project-a",
+      {
+        title: "Procedure: /edit",
+        narrative: "Edit parser branch handling",
+        facts: ["edit parser branch"],
+        concepts: ["edit", "parser", "workflow"],
+        filesRead: [],
+        filesModified: ["src/parser.ts"],
+      },
+      "change",
+      0.84,
+    );
+
+    await engine.captureMemory(
+      "session-20",
+      "project-a",
+      {
+        title: "Procedure: /build",
+        narrative: "Build and verify the parser fix",
+        facts: ["verify parser fix"],
+        concepts: ["build", "verify", "workflow"],
+        filesRead: [],
+        filesModified: ["src/parser.ts"],
+      },
+      "change",
+      0.85,
+    );
+
+    await engine.consolidate();
+    const results = await engine.retrieveMemories("inspect edit build parser", { projects: ["project-a"] }, 20);
+    const workflow = results.find((result) => result.cmu.content.title.startsWith("Workflow:"));
+
+    expect(workflow).toBeDefined();
+    expect(workflow?.cmu.content.narrative).toContain("/inspect");
+    expect(workflow?.cmu.content.narrative).toContain("/edit");
+    expect(workflow?.cmu.content.narrative).toContain("/build");
+  });
 });

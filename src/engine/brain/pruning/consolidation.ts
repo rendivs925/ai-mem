@@ -201,6 +201,14 @@ function synthesizeMemories(
     drafts.push(draft);
   }
 
+  for (const cluster of clusterSessionTrajectories(cmus)) {
+    const draft = buildTrajectoryDraft(cluster);
+    const key = `${draft.tier}:${draft.content.title.trim().toLowerCase()}:${draft.project}`;
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    drafts.push(draft);
+  }
+
   return drafts;
 }
 
@@ -241,6 +249,28 @@ function clusterProceduralCandidates(cmus: CMU[]): CMU[][] {
   }
 
   return Array.from(groups.values()).filter((group) => group.length >= 2);
+}
+
+function clusterSessionTrajectories(cmus: CMU[]): CMU[][] {
+  const groups = new Map<string, CMU[]>();
+
+  for (const cmu of cmus) {
+    if (cmu.tier === Tier.Sensory) continue;
+    if (cmu.content.title.startsWith("Knowledge:") || cmu.content.title.startsWith("Workflow:")) continue;
+    const key = `${cmu.project}:${cmu.sessionId}`;
+    groups.set(key, [...(groups.get(key) ?? []), cmu]);
+  }
+
+  return Array.from(groups.values())
+    .map((group) =>
+      [...group].sort((a, b) => a.metadata.createdAt - b.metadata.createdAt),
+    )
+    .filter((group) => {
+      const meaningful = group.filter(
+        (cmu) => cmu.tier === Tier.Procedural || cmu.memoryType === Type.Change || cmu.content.filesModified.length > 0,
+      );
+      return meaningful.length >= 3;
+    });
 }
 
 function buildSemanticDraft(cluster: CMU[]): SynthesisDraft {
@@ -307,6 +337,41 @@ function buildProceduralDraft(cluster: CMU[]): SynthesisDraft {
       title: `Workflow: ${normalized.slice(0, 80)}`,
       narrative: `Distilled from ${sorted.length} successful procedural memories for ${normalized}. Reuse this workflow before reconstructing it from scratch.`,
       facts: Array.from(new Set(sorted.flatMap((cmu) => cmu.content.facts).filter(Boolean))).slice(0, 5),
+      concepts,
+      filesRead,
+      filesModified,
+    },
+  };
+}
+
+function buildTrajectoryDraft(cluster: CMU[]): SynthesisDraft {
+  const lead = cluster[0]!;
+  const steps = cluster
+    .filter((cmu) => cmu.tier === Tier.Procedural || cmu.memoryType === Type.Change || cmu.content.filesModified.length > 0)
+    .slice(0, 5);
+  const stepTitles = steps.map((cmu) => normalizeProcedureKey(cmu.content.title) ?? cmu.content.title);
+  const filesModified = Array.from(new Set(steps.flatMap((cmu) => cmu.content.filesModified))).slice(0, 8);
+  const filesRead = Array.from(new Set(cluster.flatMap((cmu) => cmu.content.filesRead))).slice(0, 8);
+  const concepts = Array.from(
+    new Set([
+      "workflow",
+      "trajectory",
+      "distilled",
+      ...cluster.flatMap((cmu) => cmu.content.concepts.filter((item) => !item.startsWith("source:"))),
+    ]),
+  ).slice(0, 12);
+
+  return {
+    sessionId: lead.sessionId,
+    project: lead.project,
+    tier: Tier.Procedural,
+    memoryType: Type.Change,
+    importance: Math.min(0.99, average(cluster.map((cmu) => cmu.metadata.importance)) + 0.18),
+    associations: cluster.map((cmu) => cmu.id),
+    content: {
+      title: `Workflow: ${stepTitles[0] ?? "session trajectory"}`,
+      narrative: `Successful trajectory distilled from session ${lead.sessionId}. Typical sequence: ${stepTitles.join(" -> ")}.`,
+      facts: stepTitles.slice(0, 5),
       concepts,
       filesRead,
       filesModified,
