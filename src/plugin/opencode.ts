@@ -8,6 +8,7 @@ import { defaultBrainSettings, parseBrainSettings, type BrainSettings } from "..
 import { AiMemDatabase } from "../services/sqlite/Database";
 import { DB_PATH } from "../shared/paths";
 import { getProjectContext } from "../utils/project-name";
+import { resolveMemoryProject } from "../utils/memory-project";
 
 type EngineState = {
   db: AiMemDatabase;
@@ -136,11 +137,12 @@ async function captureCommandMemory(
   argumentsText: string,
 ): Promise<void> {
   if (name.startsWith("mem-")) return;
+  const target = resolveMemoryProject(pluginInput, { command: argumentsText });
 
   const combined = `${name} ${argumentsText}`.trim();
   await engine.captureMemory(
     sessionID,
-    projectName(pluginInput),
+    target.project,
     {
       title: `Procedure: /${name}`,
       narrative: combined.slice(0, 2000),
@@ -319,10 +321,10 @@ function formatStatsOutput(stats: Awaited<ReturnType<BrainEngine["getStats"]>>):
 }
 
 export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
-  const projects = projectAliases(pluginInput);
   let currentSettings = defaultBrainSettings;
 
   const resolveEngine = async () => getEngine(currentSettings);
+  const currentProjects = () => projectAliases(pluginInput);
 
   const resolveHooks = (): Hooks => ({
     config: async (config) => {
@@ -352,7 +354,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
           const results = await engine.retrieveMemories(
             args.query,
             {
-              projects,
+              projects: currentProjects(),
               tiers: args.tiers as never,
             },
             args.limit || 50
@@ -442,7 +444,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
 
     "command.execute.before": async (commandInput, output) => {
       const engine = await resolveEngine();
-      const result = await executeMemoryCommand(engine, commandInput.command, commandInput.arguments, projects);
+      const result = await executeMemoryCommand(engine, commandInput.command, commandInput.arguments, currentProjects());
       if (!result) return;
       output.parts = [
         {
@@ -461,7 +463,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
         .trim();
 
       if (query) {
-        const results = await engine.retrieveMemories(query, { projects }, 10);
+        const results = await engine.retrieveMemories(query, { projects: currentProjects() }, 10);
         if (results.length > 0) {
           const context = formatRelevantMemoryContext(results);
           output.parts.push({
@@ -483,7 +485,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
       output
     ) => {
       const engine = await resolveEngine();
-      const project = projectName(pluginInput);
+      const target = resolveMemoryProject(pluginInput, input.args);
       const argumentText = JSON.stringify(input.args);
       const files = Array.from(
         new Set(
@@ -497,7 +499,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
         const kind = toolKind(input.tool);
         await engine.captureMemory(
           input.sessionID,
-          project,
+          target.project,
           {
             title: `Tool: ${input.tool}`,
             narrative: output.output.substring(0, 2000),
@@ -514,7 +516,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
 
     "experimental.session.compacting": async (_input, output) => {
       const engine = await resolveEngine();
-      const results = await engine.retrieveMemories("", { projects }, 100);
+      const results = await engine.retrieveMemories("", { projects: currentProjects() }, 100);
       const memories = results.map((r) => r.cmu).slice(0, 50);
       if (memories.length === 0) return;
 
@@ -533,7 +535,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
       const results = await engine.retrieveMemories(
         "",
         {
-          projects,
+          projects: currentProjects(),
           tiers: ["semantic", "procedural", "episodic"] as never,
         },
         12,
