@@ -20,6 +20,7 @@ const MEM_SEARCH = "mem-search";
 const MEM_RECALL = "mem-recall";
 const MEM_STATS = "mem-stats";
 const MEM_CONSOLIDATE = "mem-consolidate";
+const MEM_REBUILD = "mem-rebuild";
 
 const COMMAND_METADATA = {
   [MEM_SEARCH]: {
@@ -47,6 +48,10 @@ const COMMAND_METADATA = {
   [MEM_CONSOLIDATE]: {
     description: "Consolidate ai-mem memories",
     template: "Consolidate ai-mem memories and report the result.",
+  },
+  [MEM_REBUILD]: {
+    description: "Rebuild ai-mem memory quality from stored memories",
+    template: "Rebuild ai-mem memory quality and report the result.",
   },
 } as const;
 
@@ -280,6 +285,17 @@ async function executeMemoryCommand(
     ].join("\n");
   }
 
+  if (command === MEM_REBUILD) {
+    const result = await engine.consolidate();
+    return [
+      "Memory quality rebuild complete",
+      `Merged: ${result.merged}`,
+      `Pruned: ${result.pruned}`,
+      `Linked: ${result.linked}`,
+      "Existing memories were re-evaluated and distilled memories were refreshed.",
+    ].join("\n");
+  }
+
   return undefined;
 }
 
@@ -395,6 +411,22 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
             `Merged: ${result.merged}`,
             `Pruned: ${result.pruned}`,
             `Linked: ${result.linked}`,
+          ].join("\n");
+        },
+      }),
+
+      [MEM_REBUILD]: tool({
+        description: "Rebuild memory quality by re-running consolidation against stored memories",
+        args: {},
+        async execute() {
+          const engine = await resolveEngine();
+          const result = await engine.consolidate();
+          return [
+            "Memory quality rebuild complete",
+            `Merged: ${result.merged}`,
+            `Pruned: ${result.pruned}`,
+            `Linked: ${result.linked}`,
+            "Existing memories were re-evaluated and distilled memories were refreshed.",
           ].join("\n");
         },
       }),

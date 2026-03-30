@@ -402,4 +402,52 @@ describe("OpenCode brain integration regressions", () => {
     expect(workflow?.cmu.content.narrative).toContain("/edit");
     expect(workflow?.cmu.content.narrative).toContain("/build");
   });
+
+  it("promotes repeated constraints into stable semantic knowledge", async () => {
+    const db = new AiMemDatabase(":memory:");
+    databases.push(db);
+
+    const engine = createBrainEngine(db.db);
+    await engine.initialize();
+
+    await engine.captureMemory(
+      "session-30",
+      "project-a",
+      {
+        title: "User constraint",
+        narrative: "Do not use placeholder or stub behavior in the plugin path",
+        facts: ["Do not use placeholder or stub behavior in the plugin path"],
+        concepts: ["constraint", "plugin", "quality"],
+        filesRead: [],
+        filesModified: [],
+      },
+      "decision",
+      0.82,
+    );
+
+    await engine.captureMemory(
+      "session-31",
+      "project-a",
+      {
+        title: "Reminder",
+        narrative: "Do not use placeholder or stub behavior in the plugin path",
+        facts: ["Do not use placeholder or stub behavior in the plugin path"],
+        concepts: ["constraint", "plugin", "quality"],
+        filesRead: [],
+        filesModified: [],
+      },
+      "decision",
+      0.84,
+    );
+
+    await engine.consolidate();
+    const results = await engine.retrieveMemories("placeholder stub plugin", { projects: ["project-a"] }, 20);
+
+    expect(
+      results.some((result) =>
+        result.cmu.tier === MemoryTier.Semantic &&
+        result.cmu.content.narrative.toLowerCase().includes("do not use placeholder or stub behavior"),
+      ),
+    ).toBe(true);
+  });
 });

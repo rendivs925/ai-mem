@@ -209,6 +209,14 @@ function synthesizeMemories(
     drafts.push(draft);
   }
 
+  for (const cluster of clusterInvariantCandidates(cmus)) {
+    const draft = buildInvariantDraft(cluster);
+    const key = `${draft.tier}:${draft.content.title.trim().toLowerCase()}:${draft.project}`;
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    drafts.push(draft);
+  }
+
   return drafts;
 }
 
@@ -271,6 +279,25 @@ function clusterSessionTrajectories(cmus: CMU[]): CMU[][] {
       );
       return meaningful.length >= 3;
     });
+}
+
+function clusterInvariantCandidates(cmus: CMU[]): CMU[][] {
+  const groups = new Map<string, CMU[]>();
+
+  for (const cmu of cmus) {
+    if (cmu.content.title.startsWith("Knowledge:") || cmu.content.title.startsWith("Workflow:")) continue;
+    const lines = [cmu.content.title, cmu.content.narrative, ...cmu.content.facts];
+    for (const line of lines) {
+      const normalized = normalizeInvariant(line);
+      if (!normalized) continue;
+      const key = `${cmu.project}:${normalized}`;
+      groups.set(key, [...(groups.get(key) ?? []), cmu]);
+    }
+  }
+
+  return Array.from(groups.values())
+    .map(uniqueById)
+    .filter((group) => group.length >= 2);
 }
 
 function buildSemanticDraft(cluster: CMU[]): SynthesisDraft {
@@ -379,6 +406,37 @@ function buildTrajectoryDraft(cluster: CMU[]): SynthesisDraft {
   };
 }
 
+function buildInvariantDraft(cluster: CMU[]): SynthesisDraft {
+  const lead = cluster[0]!;
+  const invariant = normalizeInvariant([lead.content.title, lead.content.narrative, ...lead.content.facts].join(" ")) ?? lead.content.title;
+  const facts = Array.from(new Set(cluster.flatMap((cmu) => cmu.content.facts).filter(Boolean))).slice(0, 6);
+  const concepts = Array.from(
+    new Set([
+      "invariant",
+      "preference",
+      "constraint",
+      ...cluster.flatMap((cmu) => cmu.content.concepts.filter((item) => !item.startsWith("source:"))),
+    ]),
+  ).slice(0, 12);
+
+  return {
+    sessionId: lead.sessionId,
+    project: lead.project,
+    tier: Tier.Semantic,
+    memoryType: Type.Decision,
+    importance: Math.min(0.99, average(cluster.map((cmu) => cmu.metadata.importance)) + 0.2),
+    associations: cluster.map((cmu) => cmu.id),
+    content: {
+      title: `Knowledge: ${invariant.slice(0, 80)}`,
+      narrative: `Stable invariant distilled from ${cluster.length} related memories. ${cluster.map((cmu) => cmu.content.narrative).filter(Boolean)[0]?.slice(0, 180) ?? ''}`.trim(),
+      facts,
+      concepts,
+      filesRead: Array.from(new Set(cluster.flatMap((cmu) => cmu.content.filesRead))).slice(0, 8),
+      filesModified: Array.from(new Set(cluster.flatMap((cmu) => cmu.content.filesModified))).slice(0, 8),
+    },
+  };
+}
+
 function uniqueById(cmus: CMU[]): CMU[] {
   const seen = new Set<string>();
   return cmus.filter((cmu) => {
@@ -437,4 +495,28 @@ function normalizeProcedureKey(title: string): string | undefined {
   }
 
   return undefined;
+}
+
+function normalizeInvariant(text: string): string | undefined {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (!trimmed) return undefined;
+  const lowered = trimmed.toLowerCase();
+
+  const invariantPhrases = [
+    "do not ",
+    "don't ",
+    "must ",
+    "should ",
+    "always ",
+    "never ",
+    "prefer ",
+    "required ",
+    "constraint",
+  ];
+
+  if (!invariantPhrases.some((phrase) => lowered.includes(phrase))) {
+    return undefined;
+  }
+
+  return trimmed;
 }
