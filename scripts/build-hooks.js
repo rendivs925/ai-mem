@@ -47,6 +47,10 @@ async function buildHooks() {
     if (!fs.existsSync(uiDir)) {
       fs.mkdirSync(uiDir, { recursive: true });
     }
+    const staleWorkerCli = path.join(hooksDir, 'worker-cli.js');
+    if (fs.existsSync(staleWorkerCli)) {
+      fs.unlinkSync(staleWorkerCli);
+    }
     console.log('✓ Output directories ready');
 
     // Generate plugin/package.json for cache directory dependency installation
