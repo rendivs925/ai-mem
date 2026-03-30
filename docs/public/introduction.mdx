@@ -1,38 +1,57 @@
 ---
 title: "Introduction"
-description: "Persistent memory compression system for Claude Code"
+description: "Brain-inspired persistent memory for AI coding agents"
 ---
 
-# Claude-Mem
+# ai-mem
 
-**Persistent memory compression system for Claude Code**
+**Brain-inspired persistent memory for AI coding agents**
 
-Claude-Mem seamlessly preserves context across sessions by automatically capturing tool usage observations, generating semantic summaries, and making them available to future sessions. This enables Claude to maintain continuity of knowledge about projects even after sessions end or reconnect.
+ai-mem provides persistent memory across sessions for any AI coding tool. It captures tool usage, generates semantic summaries, and makes past context available to future sessions — enabling AI agents to maintain knowledge continuity regardless of which tool you use.
+
+## Supported AI Tools
+
+| Tool | Integration |
+|------|-------------|
+| Claude Code | Native plugin |
+| Cursor | Hooks + MCP |
+| OpenCode | Native plugin |
+| Codex | HTTP API |
+| Gemini CLI | HTTP API |
+| Any tool | HTTP REST or MCP |
 
 ## Quick Start
 
-Start a new Claude Code session in the terminal and enter the following commands:
-
 ```bash
-/plugin marketplace add thedotmack/claude-mem
-/plugin install claude-mem
+# Install ai-mem
+/plugin marketplace add thedotmack/ai-mem
+/plugin install ai-mem
+
+# Restart your AI tool
+# Context from previous sessions will automatically appear
 ```
 
-Restart Claude Code. Context from previous sessions will automatically appear in new sessions.
+## Why ai-mem?
+
+- **Universal** - Works with any AI coding tool via HTTP REST or MCP
+- **Brain-inspired** - Uses ACT-R cognitive model for memory prioritization  
+- **Privacy-first** - Your data stays local, `<private>` tags excluded
+- **Fast** - SQLite with FTS5 full-text search
+- **Real-time** - SSE streaming for live memory visualization
 
 ## Key Features
 
 - 🧠 **Persistent Memory** - Context survives across sessions
-- 📁 **Folder Context Files** - Auto-generated `CLAUDE.md` in project folders with activity timelines
-- 🌐 **Multilingual Modes** - Supports 28 languages (Spanish, Chinese, French, Japanese, etc.)
-- 🎭 **Mode System** - Switch between workflows (Code, Email Investigation, Chill)
+- 🔌 **Universal Integration** - Works with any AI tool via HTTP REST or MCP
+- 🧠 **Brain-Inspired** - ACT-R activation model prioritizes important memories
+- 📁 **Folder Context Files** - Auto-generated `CLAUDE.md` in project folders
+- 🎭 **Mode System** - Switch between workflows (Code, Email Investigation, etc.)
 - 🔍 **MCP Search Tools** - Query your project history with natural language
-- 🌐 **Web Viewer UI** - Real-time memory stream visualization at http://localhost:37777
-- 🔒 **Privacy Control** - Use `<private>` tags to exclude sensitive content from storage
-- ⚙️ **Context Configuration** - Fine-grained control over what context gets injected
+- 🌐 **Web Viewer UI** - Real-time memory stream at http://localhost:37777
+- 🔒 **Privacy Control** - Use `<private>` tags to exclude sensitive content
+- ⚙️ **Context Configuration** - Fine-grained control over injected context
 - 🤖 **Automatic Operation** - No manual intervention required
 - 📊 **FTS5 Search** - Fast full-text search across observations
-- 🔗 **Citations** - Reference past observations with IDs
 
 ## How It Works
 
@@ -59,21 +78,20 @@ Restart Claude Code. Context from previous sessions will automatically appear in
 ```
 
 **Core Components:**
-1. **4 Lifecycle Hooks** - SessionStart, UserPromptSubmit, PostToolUse, Stop
-2. **Smart Install** - Cached dependency checker (pre-hook script)
-3. **Worker Service** - HTTP API on port 37777 managed by Bun
-4. **SQLite Database** - Stores sessions, observations, summaries with FTS5 search
-5. **MCP Search Tools** - Query historical context with natural language
-6. **Web Viewer UI** - Real-time visualization with SSE and infinite scroll
+1. **Lifecycle Hooks** - SessionStart, PostToolUse, Summary, Stop
+2. **HTTP Worker Service** - REST API on port 37777
+3. **SQLite Database** - Sessions, observations, summaries with FTS5
+4. **MCP Server** - Model Context Protocol for AI tool integration
+5. **HTTP Client SDK** - Easy programmatic access
+6. **Web Viewer UI** - Real-time visualization at http://localhost:37777
 
 See [Architecture Overview](architecture/overview) for details.
 
 ## System Requirements
 
-- **Node.js**: 18.0.0 or higher
-- **Claude Code**: Latest version with plugin support
-- **Bun**: JavaScript runtime and process manager (auto-installed if missing)
-- **SQLite 3**: For persistent storage (bundled)
+- **Bun**: Runtime and process manager (auto-installed if missing)
+- **Node.js**: 18.0.0+ (for some integrations)
+- **Any AI Coding Tool**: Claude Code, Cursor, OpenCode, Codex, etc.
 
 ## What's New
 

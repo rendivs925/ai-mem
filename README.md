@@ -47,8 +47,8 @@ That flow clones/prepares `ai-mem`, writes the plugin entry into `~/.config/open
 ### Claude Code
 
 ```bash
-/plugin marketplace add thedotmack/claude-mem
-/plugin install claude-mem
+/plugin marketplace add thedotmack/ai-mem
+/plugin install ai-mem
 ```
 
 ### Codex
