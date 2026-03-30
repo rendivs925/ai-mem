@@ -24,17 +24,7 @@ make setup-opencode
 make doctor-opencode
 ```
 
-Or add to `~/.config/opencode/opencode.json` manually:
-
-```json
-{
-  "plugin": [
-    "file:///absolute/path/to/ai-mem/src/plugin/opencode.ts"
-  ]
-}
-```
-
-`make setup-opencode` writes the correct absolute `file://` plugin entry automatically.
+`make setup-opencode` removes stale legacy `ai-mem` file-plugin entries from `~/.config/opencode/opencode.json`. Built-in local OpenCode installs do not require any manual `plugin` entry.
 
 If you are installing OpenCode from the parent `opencode-rs` repository, use:
 
@@ -42,7 +32,7 @@ If you are installing OpenCode from the parent `opencode-rs` repository, use:
 make opencode-install
 ```
 
-That flow clones/prepares `ai-mem`, writes the plugin entry into `~/.config/opencode/opencode.json`, and installs the OpenCode binary.
+That flow clones/prepares `ai-mem`, removes stale legacy config if present, and installs the OpenCode binary with `ai-mem` loaded as a built-in internal plugin.
 
 ### Claude Code
 

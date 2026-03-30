@@ -54,8 +54,7 @@ const ARG_TOKEN_REGEX = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi;
 const QUOTE_TRIM_REGEX = /^["']|["']$/g;
 
 async function getEngine(input: PluginInput): Promise<BrainEngine> {
-  const config = input.project?.settings?.["ai-mem"];
-  const settings = parseBrainSettings(config);
+  const settings = parseBrainSettings(undefined);
   const stateKey = `${DB_PATH}:${JSON.stringify(settings)}`;
   const existing = engineStateByDbPath.get(stateKey);
   if (existing) {
@@ -84,8 +83,7 @@ function projectName(input: PluginInput): string {
 
 function projectAliases(input: PluginInput): string[] {
   const context = projectContext(input);
-  const configuredName = input.project.name ? getProjectAliases(input.project.name) : [];
-  return Array.from(new Set([...context.allProjects, ...configuredName]));
+  return context.allProjects;
 }
 
 function extractConcepts(text: string): string[] {
@@ -412,7 +410,7 @@ export const AiMemPlugin: Plugin = async (pluginInput: PluginInput) => {
     },
 
     "tool.execute.after": async (
-      input: { tool: string; args: Record<string, unknown> },
+      input: { tool: string; sessionID: string; args: Record<string, unknown> },
       output
     ) => {
       const project = projectName(pluginInput);

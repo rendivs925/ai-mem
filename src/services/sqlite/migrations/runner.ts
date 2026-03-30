@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { logger } from '../../../utils/logger.js';
-import {
+import type {
   TableColumnInfo,
   IndexInfo,
   TableNameRow,
