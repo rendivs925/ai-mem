@@ -114,6 +114,14 @@ export class SQLiteStorageBackend implements StorageBackend {
     `).run(JSON.stringify(associations), id);
   }
 
+  async updateQuality(id: string, tier: MemoryTier, importance: number, decayRate: number): Promise<void> {
+    this.db.query(`
+      UPDATE observations
+      SET tier = ?, importance = ?, decay_rate = ?
+      WHERE id = ?
+    `).run(tier, importance, decayRate, id);
+  }
+
   async updateLastAccessed(id: string, timestamp: number): Promise<void> {
     this.db.query(`
       UPDATE observations SET last_accessed = ? WHERE id = ?

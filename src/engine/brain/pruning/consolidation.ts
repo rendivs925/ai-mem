@@ -1,11 +1,29 @@
 // Sleep Consolidation Cycle
 // Based on research: Sleep cycle for memory linking and pruning
 
-import type { CMU } from "../../../types/brain/memory";
+import type { CMU, MemoryType, MemoryTier } from "../../../types/brain/memory";
+import { MemoryTier as Tier, MemoryType as Type } from "../../../types/brain/memory";
 import { MemoryGraph } from "../graph";
 import { findDuplicates } from "./dedupe";
 import { pruneByImportance, pruneByAge } from "./cull";
 import { PruningError } from "../../../types/brain/error";
+
+export interface SynthesisDraft {
+  sessionId: string;
+  project: string;
+  tier: MemoryTier;
+  memoryType: MemoryType;
+  importance: number;
+  associations: string[];
+  content: {
+    title: string;
+    narrative: string;
+    facts: string[];
+    concepts: string[];
+    filesRead: string[];
+    filesModified: string[];
+  };
+}
 
 export interface ConsolidationResult {
   merged: number;
@@ -13,6 +31,7 @@ export interface ConsolidationResult {
   linked: number;
   removedIds: string[];
   associationsById: Record<string, string[]>;
+  synthesized: SynthesisDraft[];
 }
 
 export async function runConsolidation(
@@ -60,6 +79,7 @@ export async function runConsolidation(
     linked = linkRelatedMemories(cmus, graph, associationsById);
 
     const remaining = cmus.filter((cmu) => !toRemove.has(cmu.id));
+    const synthesized = synthesizeMemories(remaining, associationsById);
 
     const tierCounts = new Map<string, number>();
     for (const cmu of remaining) {
@@ -106,6 +126,7 @@ export async function runConsolidation(
             Array.from(associations).filter((association) => association !== id && !toRemove.has(association)),
           ]),
       ),
+      synthesized,
     };
   } catch (error) {
     throw new PruningError(
@@ -153,4 +174,202 @@ function linkRelatedMemories(
   }
 
   return links;
+}
+
+function synthesizeMemories(
+  cmus: CMU[],
+  associationsById: Record<string, Set<string>>,
+): SynthesisDraft[] {
+  const drafts: SynthesisDraft[] = [];
+  const existingKeys = new Set(
+    cmus.map((cmu) => `${cmu.tier}:${cmu.content.title.trim().toLowerCase()}:${cmu.project}`),
+  );
+
+  for (const cluster of clusterSemanticCandidates(cmus)) {
+    const draft = buildSemanticDraft(cluster);
+    const key = `${draft.tier}:${draft.content.title.trim().toLowerCase()}:${draft.project}`;
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    drafts.push(draft);
+  }
+
+  for (const cluster of clusterProceduralCandidates(cmus)) {
+    const draft = buildProceduralDraft(cluster);
+    const key = `${draft.tier}:${draft.content.title.trim().toLowerCase()}:${draft.project}`;
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    drafts.push(draft);
+  }
+
+  return drafts;
+}
+
+function clusterSemanticCandidates(cmus: CMU[]): CMU[][] {
+  const fileGroups = new Map<string, CMU[]>();
+  const conceptGroups = new Map<string, CMU[]>();
+
+  for (const cmu of cmus) {
+    if (cmu.tier === Tier.Procedural) continue;
+    if (cmu.content.title.startsWith("Knowledge:") || cmu.content.title.startsWith("Workflow:")) continue;
+
+    for (const file of new Set([...cmu.content.filesRead, ...cmu.content.filesModified])) {
+      const key = `${cmu.project}:file:${file}`;
+      fileGroups.set(key, [...(fileGroups.get(key) ?? []), cmu]);
+    }
+
+    for (const concept of cmu.content.concepts) {
+      if (concept.startsWith("source:") || concept.length < 4) continue;
+      const key = `${cmu.project}:concept:${concept}`;
+      conceptGroups.set(key, [...(conceptGroups.get(key) ?? []), cmu]);
+    }
+  }
+
+  return [...fileGroups.values(), ...conceptGroups.values()]
+    .map(uniqueById)
+    .filter((group) => group.length >= 2);
+}
+
+function clusterProceduralCandidates(cmus: CMU[]): CMU[][] {
+  const groups = new Map<string, CMU[]>();
+
+  for (const cmu of cmus) {
+    if (cmu.tier !== Tier.Procedural) continue;
+    const normalized = normalizeProcedureKey(cmu.content.title);
+    if (!normalized) continue;
+    const key = `${cmu.project}:${normalized}`;
+    groups.set(key, [...(groups.get(key) ?? []), cmu]);
+  }
+
+  return Array.from(groups.values()).filter((group) => group.length >= 2);
+}
+
+function buildSemanticDraft(cluster: CMU[]): SynthesisDraft {
+  const sorted = [...cluster].sort((a, b) => b.metadata.importance - a.metadata.importance);
+  const lead = sorted[0]!;
+  const file = firstSharedFile(sorted);
+  const concept = firstSharedConcept(sorted);
+  const focus = file ?? concept ?? lead.content.title;
+  const facts = Array.from(
+    new Set(sorted.flatMap((cmu) => cmu.content.facts).filter(Boolean)),
+  ).slice(0, 6);
+  const filesRead = Array.from(
+    new Set(sorted.flatMap((cmu) => [...cmu.content.filesRead, ...cmu.content.filesModified])),
+  ).slice(0, 8);
+  const concepts = Array.from(
+    new Set([
+      "distilled",
+      "reflection",
+      ...(concept ? [concept] : []),
+      ...sorted.flatMap((cmu) => cmu.content.concepts.filter((item) => !item.startsWith("source:"))),
+    ]),
+  ).slice(0, 12);
+
+  return {
+    sessionId: lead.sessionId,
+    project: lead.project,
+    tier: Tier.Semantic,
+    memoryType: Type.Decision,
+    importance: Math.min(0.95, average(cluster.map((cmu) => cmu.metadata.importance)) + 0.15),
+    associations: sorted.map((cmu) => cmu.id),
+    content: {
+      title: `Knowledge: ${String(focus).slice(0, 80)}`,
+      narrative: `Distilled from ${sorted.length} related memories about ${focus}. ${summarizeClusterNarrative(sorted)}`,
+      facts,
+      concepts,
+      filesRead,
+      filesModified: [],
+    },
+  };
+}
+
+function buildProceduralDraft(cluster: CMU[]): SynthesisDraft {
+  const sorted = [...cluster].sort((a, b) => b.metadata.accessCount - a.metadata.accessCount);
+  const lead = sorted[0]!;
+  const normalized = normalizeProcedureKey(lead.content.title) ?? lead.content.title;
+  const filesModified = Array.from(new Set(sorted.flatMap((cmu) => cmu.content.filesModified))).slice(0, 8);
+  const filesRead = Array.from(new Set(sorted.flatMap((cmu) => cmu.content.filesRead))).slice(0, 8);
+  const concepts = Array.from(
+    new Set([
+      "workflow",
+      "distilled",
+      ...sorted.flatMap((cmu) => cmu.content.concepts.filter((item) => !item.startsWith("source:"))),
+    ]),
+  ).slice(0, 12);
+
+  return {
+    sessionId: lead.sessionId,
+    project: lead.project,
+    tier: Tier.Procedural,
+    memoryType: Type.Change,
+    importance: Math.min(0.98, average(cluster.map((cmu) => cmu.metadata.importance)) + 0.12),
+    associations: sorted.map((cmu) => cmu.id),
+    content: {
+      title: `Workflow: ${normalized.slice(0, 80)}`,
+      narrative: `Distilled from ${sorted.length} successful procedural memories for ${normalized}. Reuse this workflow before reconstructing it from scratch.`,
+      facts: Array.from(new Set(sorted.flatMap((cmu) => cmu.content.facts).filter(Boolean))).slice(0, 5),
+      concepts,
+      filesRead,
+      filesModified,
+    },
+  };
+}
+
+function uniqueById(cmus: CMU[]): CMU[] {
+  const seen = new Set<string>();
+  return cmus.filter((cmu) => {
+    if (seen.has(cmu.id)) return false;
+    seen.add(cmu.id);
+    return true;
+  });
+}
+
+function average(values: number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+}
+
+function firstSharedFile(cluster: CMU[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const cmu of cluster) {
+    for (const file of new Set([...cmu.content.filesRead, ...cmu.content.filesModified])) {
+      counts.set(file, (counts.get(file) ?? 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .find(([, count]) => count >= 2)?.[0];
+}
+
+function firstSharedConcept(cluster: CMU[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const cmu of cluster) {
+    for (const concept of cmu.content.concepts.filter((item) => !item.startsWith("source:"))) {
+      counts.set(concept, (counts.get(concept) ?? 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .find(([, count]) => count >= 2)?.[0];
+}
+
+function summarizeClusterNarrative(cluster: CMU[]): string {
+  return cluster
+    .map((cmu) => cmu.content.narrative.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((item) => item.slice(0, 140))
+    .join(" ");
+}
+
+function normalizeProcedureKey(title: string): string | undefined {
+  if (title.startsWith("Procedure: /")) {
+    return title.replace("Procedure: /", "/");
+  }
+
+  if (title.startsWith("Tool: ")) {
+    return title.replace("Tool: ", "");
+  }
+
+  return undefined;
 }

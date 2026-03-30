@@ -10,6 +10,7 @@ export interface StorageBackend {
   getMemoriesByTier(tier: MemoryTier): Promise<CMU[]>;
   updateActivation(id: string, activation: number): Promise<void>;
   updateAssociations(id: string, associations: string[]): Promise<void>;
+  updateQuality(id: string, tier: MemoryTier, importance: number, decayRate: number): Promise<void>;
   updateLastAccessed(id: string, timestamp: number): Promise<void>;
   incrementAccessCount(id: string): Promise<void>;
   deleteMemory(id: string): Promise<void>;
