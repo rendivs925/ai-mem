@@ -21,6 +21,25 @@ mock.module('../../../../src/shared/paths.js', () => ({
 mock.module('../../../../src/shared/worker-utils.js', () => ({
   getWorkerPort: () => 37777,
 }));
+mock.module('fs', () => ({
+  readFileSync: () => JSON.stringify({ version: '0.1.0-test' }),
+  statSync: () => ({ size: 4096 }),
+  existsSync: () => true,
+}));
+mock.module('../../../../src/engine/brain/engine.js', () => ({
+  createBrainEngine: () => ({
+    initialize: async () => {},
+    getStats: async () => ({
+      total: 7,
+      avgActivation: 0.42,
+      byTier: { sensory: 1, working: 0, episodic: 2, semantic: 3, procedural: 1 },
+      committed: 4,
+      evidence: 3,
+      distilled: 2,
+      topSignals: ['architecture', 'workflow', 'constraint'],
+    }),
+  }),
+}));
 
 import { DataRoutes } from '../../../../src/services/worker/http/routes/DataRoutes.js';
 
@@ -42,6 +61,7 @@ describe('DataRoutes Type Coercion', () => {
   let routes: DataRoutes;
   let mockGetObservationsByIds: ReturnType<typeof mock>;
   let mockGetSdkSessionsBySessionIds: ReturnType<typeof mock>;
+  let mockDbPrepare: ReturnType<typeof mock>;
 
   beforeEach(() => {
     loggerSpies = [
@@ -54,9 +74,18 @@ describe('DataRoutes Type Coercion', () => {
 
     mockGetObservationsByIds = mock(() => [{ id: 1 }, { id: 2 }]);
     mockGetSdkSessionsBySessionIds = mock(() => [{ id: 'abc' }]);
+    mockDbPrepare = mock((sql: string) => ({
+      get: () => {
+        if (sql.includes('FROM observations')) return { count: 12 };
+        if (sql.includes('FROM sdk_sessions')) return { count: 5 };
+        if (sql.includes('FROM session_summaries')) return { count: 3 };
+        return { count: 0 };
+      }
+    }));
 
     const mockDbManager = {
       getSessionStore: () => ({
+        db: { prepare: mockDbPrepare },
         getObservationsByIds: mockGetObservationsByIds,
         getSdkSessionsBySessionIds: mockGetSdkSessionsBySessionIds,
       }),
@@ -65,8 +94,8 @@ describe('DataRoutes Type Coercion', () => {
     routes = new DataRoutes(
       {} as any, // paginationHelper
       mockDbManager as any,
-      {} as any, // sessionManager
-      {} as any, // sseBroadcaster
+      { getActiveSessionCount: () => 2 } as any, // sessionManager
+      { getClientCount: () => 4 } as any, // sseBroadcaster
       {} as any, // workerService
       Date.now()
     );
@@ -190,6 +219,56 @@ describe('DataRoutes Type Coercion', () => {
       handler(req as Request, res as Response);
 
       expect(statusSpy).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('handleGetStats', () => {
+    let handler: (req: Request, res: Response) => Promise<void>;
+
+    beforeEach(() => {
+      const mockApp = {
+        get: mock((path: string, fn: any) => {
+          if (path === '/api/stats') handler = fn;
+        }),
+        post: mock(() => {}),
+        delete: mock(() => {}),
+      };
+      routes.setupRoutes(mockApp as any);
+    });
+
+    it('returns worker, database, and brain-memory quality stats', async () => {
+      const jsonSpy = mock(() => {});
+      const statusSpy = mock(() => ({ json: jsonSpy }));
+      const req = { path: '/api/stats', query: {} } as Partial<Request>;
+      const res = { json: jsonSpy, status: statusSpy, headersSent: false } as unknown as Response;
+
+      handler(req as Request, res);
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(jsonSpy).toHaveBeenCalledTimes(1);
+      expect(statusSpy).not.toHaveBeenCalledWith(500);
+      expect(jsonSpy).toHaveBeenCalledWith(expect.objectContaining({
+        worker: expect.objectContaining({
+          version: '0.1.0-test',
+          activeSessions: 2,
+          sseClients: 4,
+          port: 37777,
+        }),
+        database: expect.objectContaining({
+          size: 4096,
+          observations: 12,
+          sessions: 5,
+          summaries: 3,
+        }),
+        memory: expect.objectContaining({
+          total: 7,
+          avgActivation: 0.42,
+          committed: 4,
+          evidence: 3,
+          distilled: 2,
+          topSignals: ['architecture', 'workflow', 'constraint'],
+        }),
+      }));
     });
   });
 });

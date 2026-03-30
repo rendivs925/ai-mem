@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Stats } from '../types';
 import { API_ENDPOINTS } from '../constants/api';
+import { TIMING } from '../constants/timing';
 
 export function useStats() {
   const [stats, setStats] = useState<Stats>({});
@@ -16,8 +17,12 @@ export function useStats() {
   }, []);
 
   useEffect(() => {
-    // Load once on mount
     loadStats();
+    const intervalId = window.setInterval(loadStats, TIMING.STATS_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
   }, [loadStats]);
 
   return { stats, refreshStats: loadStats };
