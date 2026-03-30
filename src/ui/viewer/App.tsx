@@ -21,8 +21,8 @@ export function App() {
 
   const { observations, summaries, prompts, projects, isProcessing, queueDepth, isConnected } = useSSE();
   const { settings, saveSettings, isSaving, saveStatus } = useSettings();
-  const { stats, refreshStats } = useStats();
-  const { preference, resolvedTheme, setThemePreference } = useTheme();
+  const { stats } = useStats();
+  const { preference, setThemePreference } = useTheme();
   const pagination = usePagination(currentFilter);
 
   // Merge SSE live data with paginated data, filtering by project when active
@@ -101,6 +101,7 @@ export function App() {
         themePreference={preference}
         onThemeChange={setThemePreference}
         onContextPreviewToggle={toggleContextPreview}
+        stats={stats}
       />
 
       <Feed

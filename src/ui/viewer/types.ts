@@ -100,7 +100,26 @@ export interface DatabaseStats {
   summaries?: number;
 }
 
+export interface MemoryTierStats {
+  sensory?: number;
+  working?: number;
+  episodic?: number;
+  semantic?: number;
+  procedural?: number;
+}
+
+export interface MemoryStats {
+  total?: number;
+  avgActivation?: number;
+  byTier?: MemoryTierStats;
+  committed?: number;
+  evidence?: number;
+  distilled?: number;
+  topSignals?: string[];
+}
+
 export interface Stats {
   worker?: WorkerStats;
   database?: DatabaseStats;
+  memory?: MemoryStats;
 }

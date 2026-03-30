@@ -3,6 +3,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { ThemePreference } from '../hooks/useTheme';
 import { GitHubStarsButton } from './GitHubStarsButton';
 import { useSpinningFavicon } from '../hooks/useSpinningFavicon';
+import { Stats } from '../types';
 
 interface HeaderProps {
   isConnected: boolean;
@@ -14,6 +15,7 @@ interface HeaderProps {
   themePreference: ThemePreference;
   onThemeChange: (theme: ThemePreference) => void;
   onContextPreviewToggle: () => void;
+  stats: Stats;
 }
 
 export function Header({
@@ -25,9 +27,24 @@ export function Header({
   queueDepth,
   themePreference,
   onThemeChange,
-  onContextPreviewToggle
+  onContextPreviewToggle,
+  stats
 }: HeaderProps) {
   useSpinningFavicon(isProcessing);
+
+  const memory = stats.memory;
+  const totalMemory = memory?.total ?? 0;
+  const committed = memory?.committed ?? 0;
+  const evidence = memory?.evidence ?? 0;
+  const distilled = memory?.distilled ?? 0;
+  const topSignals = memory?.topSignals?.slice(0, 3) ?? [];
+
+  const committedPercent = totalMemory > 0
+    ? Math.round((committed / totalMemory) * 100)
+    : 0;
+  const evidencePercent = totalMemory > 0
+    ? Math.round((evidence / totalMemory) * 100)
+    : 0;
 
   return (
     <div className="header">
@@ -43,6 +60,32 @@ export function Header({
         <span className="logo-text">claude-mem</span>
       </h1>
       <div className="status">
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '6px 10px',
+            border: '1px solid var(--color-border-secondary, rgba(127, 127, 127, 0.25))',
+            borderRadius: '10px',
+            fontSize: '12px',
+            color: 'var(--color-text-secondary, #8b949e)',
+            background: 'var(--color-bg-tertiary, rgba(127, 127, 127, 0.08))'
+          }}
+          title="Shared brain-memory quality"
+        >
+          <span style={{ color: 'var(--color-text-primary)' }}>
+            Memory {totalMemory}
+          </span>
+          <span>Committed {committedPercent}%</span>
+          <span>Evidence {evidencePercent}%</span>
+          <span>Distilled {distilled}</span>
+          {topSignals.length > 0 && (
+            <span style={{ maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {topSignals.join(' • ')}
+            </span>
+          )}
+        </div>
         <a
           href="https://docs.claude-mem.ai"
           target="_blank"

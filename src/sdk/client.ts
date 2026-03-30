@@ -49,9 +49,29 @@ export interface SearchResult {
 }
 
 export interface MemoryStats {
-  total: number;
-  avgActivation: number;
-  byTier: Record<string, number>;
+  worker?: {
+    version: string;
+    uptime: number;
+    activeSessions: number;
+    sseClients: number;
+    port: number;
+  };
+  database?: {
+    path: string;
+    size: number;
+    observations: number;
+    sessions: number;
+    summaries: number;
+  };
+  memory?: {
+    total: number;
+    avgActivation: number;
+    byTier: Record<string, number>;
+    committed: number;
+    evidence: number;
+    distilled: number;
+    topSignals: string[];
+  };
 }
 
 export interface SessionObservation {

@@ -18,6 +18,7 @@ import { SessionManager } from '../../SessionManager.js';
 import { SSEBroadcaster } from '../../SSEBroadcaster.js';
 import type { WorkerService } from '../../../worker-service.js';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
+import { createBrainEngine } from '../../../../engine/brain/engine.js';
 
 export class DataRoutes extends BaseRouteHandler {
   constructor(
@@ -207,7 +208,7 @@ export class DataRoutes extends BaseRouteHandler {
   /**
    * Get database statistics (with worker metadata)
    */
-  private handleGetStats = this.wrapHandler((req: Request, res: Response): void => {
+  private handleGetStats = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const db = this.dbManager.getSessionStore().db;
 
     // Read version from package.json
@@ -232,6 +233,9 @@ export class DataRoutes extends BaseRouteHandler {
     const uptime = Math.floor((Date.now() - this.startTime) / 1000);
     const activeSessions = this.sessionManager.getActiveSessionCount();
     const sseClients = this.sseBroadcaster.getClientCount();
+    const brainEngine = createBrainEngine(db);
+    await brainEngine.initialize();
+    const memory = await brainEngine.getStats();
 
     res.json({
       worker: {
@@ -247,6 +251,15 @@ export class DataRoutes extends BaseRouteHandler {
         observations: totalObservations.count,
         sessions: totalSessions.count,
         summaries: totalSummaries.count
+      },
+      memory: {
+        total: memory.total,
+        avgActivation: memory.avgActivation,
+        byTier: memory.byTier,
+        committed: memory.committed,
+        evidence: memory.evidence,
+        distilled: memory.distilled,
+        topSignals: memory.topSignals,
       }
     });
   });
