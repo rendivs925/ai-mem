@@ -92,7 +92,7 @@ The active runtime model is:
 
 ## Configuration
 
-Settings in `~/.claude-mem/settings.json` or via environment variables:
+Settings in `~/.ai-mem/settings.json` or via environment variables:
 
 - `AIMEM_ACTIVATION_DECAY` - ACT-R decay parameter (default: 0.5)
 - `AIMEM_CONSOLIDATION_INTERVAL` - Minutes between consolidation runs (default: 60)

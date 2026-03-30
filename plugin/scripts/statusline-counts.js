@@ -19,27 +19,50 @@
  * Performance: ~10ms typical (direct SQLite read, no HTTP, no worker dependency)
  */
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, copyFileSync, renameSync, mkdirSync } from "fs";
 import { homedir } from "os";
-import { join, basename } from "path";
+import { join, basename, dirname } from "path";
 
 const cwd = process.argv[2] || process.env.CLAUDE_CWD || process.cwd();
 const project = basename(cwd);
 
 try {
   // Resolve data directory: env var → settings.json → default
-  let dataDir = process.env.CLAUDE_MEM_DATA_DIR || join(homedir(), ".claude-mem");
+  let dataDir = process.env.AI_MEM_DATA_DIR || process.env.CLAUDE_MEM_DATA_DIR || join(homedir(), ".ai-mem");
   if (!process.env.CLAUDE_MEM_DATA_DIR) {
     const settingsPath = join(dataDir, "settings.json");
     if (existsSync(settingsPath)) {
       try {
         const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-        if (settings.CLAUDE_MEM_DATA_DIR) dataDir = settings.CLAUDE_MEM_DATA_DIR;
+        const flat = settings.env ?? settings;
+        if (flat.AI_MEM_DATA_DIR) dataDir = flat.AI_MEM_DATA_DIR;
+        else if (flat.CLAUDE_MEM_DATA_DIR) dataDir = flat.CLAUDE_MEM_DATA_DIR;
       } catch { /* use default */ }
     }
   }
 
-  const dbPath = join(dataDir, "claude-mem.db");
+  const dbPath = join(dataDir, "ai-mem.db");
+  const legacyPaths = [
+    join(dataDir, "claude-mem.db"),
+    join(homedir(), ".claude-mem", "claude-mem.db"),
+  ];
+
+  if (!existsSync(dbPath)) {
+    mkdirSync(dirname(dbPath), { recursive: true });
+    for (const legacy of legacyPaths) {
+      if (!existsSync(legacy)) continue;
+      const sourceDir = dirname(legacy);
+      const targetDir = dirname(dbPath);
+      for (const item of [legacy, `${legacy}-wal`, `${legacy}-shm`]) {
+        if (!existsSync(item)) continue;
+        const destination = join(targetDir, basename(item).replace(basename(legacy), basename(dbPath)));
+        if (sourceDir === targetDir) renameSync(item, destination);
+        else copyFileSync(item, destination);
+      }
+      break;
+    }
+  }
+
   if (!existsSync(dbPath)) {
     console.log(JSON.stringify({ observations: 0, prompts: 0, project }));
     process.exit(0);
